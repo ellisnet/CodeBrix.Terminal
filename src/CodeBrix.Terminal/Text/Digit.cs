@@ -1,0 +1,15 @@
+﻿namespace CodeBrix.Terminal.Text; //Was previously: namespace NStack;
+
+public partial class Unicode {
+    /// <summary>
+    /// IsDigit reports whether the rune is a decimal digit.
+    /// </summary>
+    /// <returns><c>true</c>, if the rune is a mark, <c>false</c> otherwise.</returns>
+    /// <param name="rune">The rune to test for.</param>
+    public static bool IsDigit (uint rune)
+    {
+        if (rune < MaxLatin1)
+            return rune is >= '0' and <= '9';
+        return Category.Digit.IsExcludingLatin (rune);
+    }	
+}

@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/Samples/">
+    <Project Path="samples/RemoteTerminal.Server/RemoteTerminal.Server.csproj" Id="58a0ed49-4b60-4190-9789-ddb27f95a70c" />
+    <Project Path="samples/RemoteTerminal.Shared/RemoteTerminal.Shared.csproj" Id="4e58f260-1b51-44b7-aad2-f250844612e0" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="tests/CodeBrix.Terminal.Engine.Tests/CodeBrix.Terminal.Engine.Tests.csproj" Id="d0bedc8f-886b-44aa-8a65-35a9230f9701" />
+    <Project Path="tests/CodeBrix.Terminal.Text.Tests/CodeBrix.Terminal.Text.Tests.csproj" />
+    <Project Path="tests/RemoteTerminal.AuthKey.Tests/RemoteTerminal.AuthKey.Tests.csproj" Id="60fcc5fd-25ad-4b84-9b96-c96429b3acd3" />
+  </Folder>
+  <Project Path="src/CodeBrix.Terminal/CodeBrix.Terminal.csproj" />
+</Solution>

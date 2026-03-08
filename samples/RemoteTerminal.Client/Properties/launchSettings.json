@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "RemoteTerminal.Client (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "RemoteTerminal.Client (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
