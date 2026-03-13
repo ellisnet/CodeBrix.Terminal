@@ -9,6 +9,7 @@
   </Folder>
   <Folder Name="/Solution Items/">
     <File Path=".gitignore" />
+    <File Path="AGENT-README.txt" />
     <File Path="icon-codebrix-128.png" />
     <File Path="LICENSE" />
     <File Path="README.md" />

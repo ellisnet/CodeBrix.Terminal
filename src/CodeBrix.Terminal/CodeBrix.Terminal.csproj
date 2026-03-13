@@ -6,7 +6,7 @@
 
     <!-- NuGet package properties -->
     <PackageId>CodeBrix.Terminal.MitLicenseForever</PackageId>
-    <Version>1.0.65</Version>
+    <Version>1.0.71</Version>
     <Product>CodeBrix.Terminal</Product>
     <Title>CodeBrix.Terminal</Title>
     <Description>A .NET terminal emulation engine with Unicode text support. Provides a virtual terminal (VT100/VT220/VT400/xterm-compatible) emulation engine, including a full ANSI/DEC escape sequence parser, terminal buffer management, and Unicode text utilities.</Description>
