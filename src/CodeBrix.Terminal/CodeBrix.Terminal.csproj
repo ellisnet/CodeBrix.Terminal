@@ -6,7 +6,7 @@
 
     <!-- NuGet package properties -->
     <PackageId>CodeBrix.Terminal.MitLicenseForever</PackageId>
-    <Version>1.0.106</Version>
+    <Version>1.0.117</Version>
     <Product>CodeBrix.Terminal</Product>
     <Title>CodeBrix.Terminal</Title>
     <Description>A .NET terminal emulation engine with Unicode text support. Provides a virtual terminal (VT100/VT220/VT400/xterm-compatible) emulation engine, including a full ANSI/DEC escape sequence parser, terminal buffer management, and Unicode text utilities.</Description>
@@ -24,8 +24,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
-    <None Include="..\..\icon-codebrix-128.png" Pack="true" PackagePath="\" />
+    <None Include="..\..\icon-codebrix-128.png" Pack="true" PackagePath="" />
+    <None Include="..\..\README.md" Pack="true" PackagePath="" />
+    <None Include="..\..\AGENT-README.txt" Pack="true" PackagePath="" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.txt" Pack="true" PackagePath="" />
   </ItemGroup>
 
 </Project>

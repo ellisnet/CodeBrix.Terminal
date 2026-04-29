@@ -28,7 +28,6 @@ License: MIT License
 INSTALLATION
 ------------
 NuGet Package: CodeBrix.Terminal.MitLicenseForever
-Version: 1.0.65
 Authors: Jeremy Ellis
 Dependencies: NONE (no dependencies other than the .NET runtime)
 
@@ -40,7 +39,7 @@ To add to a .NET 10+ project:
 
 Or in a .csproj file:
 
-    <PackageReference Include="CodeBrix.Terminal.MitLicenseForever" Version="1.0.65" />
+    <PackageReference Include="CodeBrix.Terminal.MitLicenseForever" />
 
 IMPORTANT: The package name is "CodeBrix.Terminal.MitLicenseForever" (not just
 "CodeBrix.Terminal"). Always use this full package name when installing.
@@ -801,83 +800,63 @@ Feature-to-test-file mapping:
 
   Backspace behavior (wrapping, margins, reverse wrap):
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/BsTests.cs
-       (10 tests)
 
   Cursor backward tabulation:
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/CbtTests.cs
-       (4 tests)
 
   Carriage return (margins, origin mode):
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/CrTests.cs
-       (5 tests)
 
   Cursor position (CUP, origin mode, bounds):
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/CupTests.cs
-       (6 tests)
 
   DEC copy rectangular area:
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/DeccraTests.cs
-       (4 tests)
 
   DEC request status string:
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/DecrqssTests.cs
-       (5 tests)
 
   Device status reports and device attributes (DA1, DA2, DSR):
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/DeviceStatusTests.cs
-       (9 tests)
 
   Erase operations (ED, EL, ECH, DECERA, DECSERA):
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/EraseTests.cs
-       (12 tests)
 
   Fill rectangular area (DECFRA):
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/FillRectangleTests.cs
-       (2 tests)
 
   Insert/delete characters and columns (ICH, DCH, DECIC, DECDC):
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/InsertDeleteCharTests.cs
-       (7 tests)
 
   Insert/delete lines (IL, DL):
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/InsertDeleteLineTests.cs
-       (6 tests)
 
   Scroll up/down, index, reverse index, viewport scrolling:
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/ScrollTests.cs
-       (20 tests)
 
   Select graphic rendition (bold, italic, colors, resets):
     -> tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/SgrTests.cs
-       (25 tests)
 
   Rune struct (column width, surrogate pairs, classification):
     -> tests/CodeBrix.Terminal.Text.Tests/RuneTests.cs
-       (28 tests)
 
   Rune classification and case conversion:
     -> tests/CodeBrix.Terminal.Text.Tests/RuneClassificationTests.cs
-       (50 tests)
 
   ustring operations (search, compare, slice, trim, replace):
     -> tests/CodeBrix.Terminal.Text.Tests/UStringTests.cs
-       (34 tests)
 
   ustring additional (case conversion, concat, join, make):
     -> tests/CodeBrix.Terminal.Text.Tests/UStringAdditionalTests.cs
-       (73 tests)
 
   Unicode classification and case conversion:
     -> tests/CodeBrix.Terminal.Text.Tests/UnicodeTests.cs
-       (9 tests)
 
   UTF-8 encoding/decoding:
     -> tests/CodeBrix.Terminal.Text.Tests/Utf8Tests.cs
-       (10 tests)
 
   Utf8/ustring overloads and parity:
     -> tests/CodeBrix.Terminal.Text.Tests/Utf8UStringOverloadTests.cs
-       (43 tests)
 
 HOW TO USE: Fetch the raw file content from GitHub using a URL like:
     https://raw.githubusercontent.com/ellisnet/CodeBrix.Terminal/main/{path}
