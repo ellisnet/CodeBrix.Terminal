@@ -490,6 +490,29 @@ public class Terminal {
         Refresh (0, this.Rows - 1);
     }
 
+    /// <summary>
+    /// Gets a value indicating whether the viewport is at the bottom of the
+    /// scrollback buffer (following live output). <see langword="false"/> while
+    /// the user has scrolled back.
+    /// </summary>
+    public bool IsAtBottom => Buffer.YDisp == Buffer.YBase;
+
+    /// <summary>
+    /// Scrolls the viewport back to the bottom of the scrollback buffer and
+    /// resumes following live output. No-op (and no event) when already at the
+    /// bottom. Rendering hosts typically call this when the user presses a key.
+    /// </summary>
+    public void ScrollToBottom ()
+    {
+        ScrollLines (Buffer.YBase - Buffer.YDisp);
+    }
+
+    /// <summary>
+    /// Raised whenever the viewport position changes -- both when incoming
+    /// content scrolls the terminal and when <see cref="ScrollLines"/> /
+    /// <see cref="ScrollToBottom"/> move the viewport. The <c>int</c> parameter
+    /// is the new <c>Buffer.YDisp</c>.
+    /// </summary>
     public event Action<Terminal, int> Scrolled;
 
     public event Action<Terminal, string> DataEmitted;

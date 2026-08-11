@@ -1,11 +1,17 @@
 ﻿namespace CodeBrix.Terminal.Engine; //was previously: namespace XtermSharp;
 
 /// <summary>
-/// 
+/// The callback surface a <see cref="Terminal"/> host implements to react to
+/// engine events: cursor visibility, title changes, escape-driven resizes,
+/// data the engine needs sent back to the remote end, and window manipulation
+/// commands. Extend <see cref="SimpleTerminalDelegate"/> to override only the
+/// members you need.
 /// </summary>
 public interface ITerminalDelegate {
     /// <summary>
-    /// 
+    /// Called when the cursor should be made visible again (for example after
+    /// an escape sequence re-enables it). A rendering host typically
+    /// invalidates/repaints so the cursor shows.
     /// </summary>
     void ShowCursor (Terminal source);
 
@@ -71,7 +77,7 @@ public class SimpleTerminalDelegate : ITerminalDelegate {
     {
     }
 
-    public virtual string WindowCommand (Terminal source, WindowManipulationCommand command, int [] args)
+    public virtual string WindowCommand (Terminal source, WindowManipulationCommand command, params int [] args)
     {
         return null;
     }

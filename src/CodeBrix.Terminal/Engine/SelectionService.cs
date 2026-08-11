@@ -167,9 +167,16 @@ public class SelectionService {
     }
 
     /// <summary>
-    /// Selects a word or expression based on the col and row that the user sees on screen
-    /// An expression is a balanced set parenthesis, braces or brackets
+    /// Selects a word or expression based on the col and row that the user sees on screen.
+    /// An expression is a balanced set of parenthesis, braces or brackets.
     /// </summary>
+    /// <remarks>
+    /// WARNING: this method takes <c>(col, row)</c>, unlike its siblings
+    /// (<see cref="StartSelection(int, int)"/>, <see cref="DragExtend"/>,
+    /// <see cref="ShiftExtend"/>, <see cref="SetSoftStart"/>), which take
+    /// <c>(row, col)</c>. The order is kept for compatibility; transposing the
+    /// arguments selects the wrong cell.
+    /// </remarks>
     public void SelectWordOrExpression(int col, int row)
     {
         row += terminal.Buffer.YDisp;
@@ -201,8 +208,9 @@ public class SelectionService {
                 } else if (chr.MatchesRune (CharData.RightBrace) || chr.MatchesRune (CharData.RightBracket) || chr.MatchesRune (CharData.RightParenthesis)) {
                     BalancedSearchBackward (col, row);
                 } else {
-                    // For other characters, we just stop there
-                    Start = End = new Point (col, row + terminal.Buffer.YDisp);
+                    // For other characters, we just stop there. The row is already
+                    // buffer-absolute (YDisp was added at the top of this method).
+                    Start = End = new Point (col, row);
                 }
             }
         }

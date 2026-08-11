@@ -137,7 +137,18 @@ Display Management:
     void Refresh(int startRow, int endRow)
     void GetUpdateRange(out int startY, out int endY)
     void ClearUpdateRange()
+
+Viewport / scrollback:
+
     void ScrollLines(int disp, bool suppressScrollEvent = false)
+                                          // Moves the VIEWPORT disp lines
+                                          //   (negative = back into history),
+                                          //   clamped to [0, YBase]
+    void ScrollToBottom()                 // Back to live output; no-op (and no
+                                          //   event) when already at bottom
+    bool IsAtBottom { get; }              // Following live output?
+    // The Scrolled event (below) fires with the new Buffer.YDisp whenever
+    // the viewport moves - from incoming content or from these calls.
 
 Cursor Operations:
 
@@ -196,9 +207,15 @@ TERMINAL OPTIONS
         ScreenReaderMode = false,
     };
 
-    // Read-only defaults:
-    options.Scrollback    // Default: 1000
-    options.TabStopWidth  // Default: 8
+    // Settable, but set them BEFORE constructing the Terminal - the buffer
+    // sizes itself and lays out tab stops from these at construction:
+    options.Scrollback = 500;    // Default: 1000 (lines kept beyond the rows)
+    options.TabStopWidth = 4;    // Default: 8
+
+    // ConvertEol interplay: the default (true) treats a bare LF as CRLF on
+    // input. A host whose data source emits explicit \r\n line endings (a
+    // remote shell over SSH, most PTYs) must set ConvertEol = false, or
+    // every line break doubles into a blank line.
 
 CursorStyle enum:
     BlinkBlock, SteadyBlock, BlinkUnderline, SteadyUnderline,
@@ -275,8 +292,17 @@ CharData struct - a single character with attributes:
 
     int attribute = ch.Attribute;        // Encoded styling (fg, bg, flags)
     Rune rune = ch.Rune;                // The Unicode character
-    int width = ch.Width;               // Display width (1 or 2)
+    int width = ch.Width;               // Display width (0, 1 or 2; 0 = the
+                                        //   continuation cell of a wide char)
     int code = ch.Code;                 // Unicode code point
+    bool blank = ch.IsBlank;            // Never-written/erased cell: paint
+                                        //   background only (its Rune is
+                                        //   U+0200, NOT a space)
+
+    // Preferred attribute decoding:
+    var (fg, bg, flags) = CharacterAttribute.Unpack(ch.Attribute);
+    // fg/bg: palette indices, or CharacterAttribute.DefaultColorIndex (256)
+    // / InvertedDefaultColorIndex (257)
 
     // Static instances
     CharData.Null                        // Empty character
@@ -405,6 +431,11 @@ SelectionService:
 
     string text = selection.GetSelectedText();
     bool active = selection.Active;
+
+    // Conventions: Start/End are buffer-absolute; End is column-EXCLUSIVE
+    // ([Start.X, End.X) on the end row) and Start == End yields empty text.
+    // SelectWordOrExpression takes (col, row); the other methods take
+    // (row, col). See WRITING A RENDERER, point 6.
 
 ================================================================================
 
@@ -549,6 +580,91 @@ PREDEFINED ESCAPE SEQUENCES
 
     // Function keys
     EscapeSequences.CmdF[0..11]      // F1 through F12
+
+================================================================================
+
+KEYBOARD INPUT ENCODING
+========================
+
+TerminalKeyEncoder translates key presses into the VT byte sequences a
+terminal application expects, so a rendering host does not hand-roll the
+mapping. TerminalKey and TerminalModifiers are platform-neutral: map your
+native key events (WinUI VirtualKey, GTK keyval, ...) onto them.
+
+    using CodeBrix.Terminal.Engine;
+
+    // Raw-key hosts (platform exposes no composed-text event) call Encode
+    // for everything; printables follow a US-QWERTY layout:
+    string seq = TerminalKeyEncoder.Encode(
+        TerminalKey.Up,
+        TerminalModifiers.None,
+        applicationCursor: terminal.ApplicationCursor);
+
+    // Composed-text hosts encode named non-printables from the key
+    // identifier and printable input from the layout-composed character,
+    // getting correct behavior on any keyboard layout:
+    string special = TerminalKeyEncoder.EncodeSpecial(
+        TerminalKey.Delete, terminal.ApplicationCursor);
+    string text = TerminalKeyEncoder.EncodeComposed(codePoint, modifiers);
+
+Rules applied: Ctrl chords become C0 control codes (Ctrl+A..Z -> 1..26,
+Ctrl+[ = ESC, Ctrl+Space = NUL), Alt prefixes ESC (the meta convention),
+Shift+Tab is back-tab (CSI Z), and arrows/Home/End honor application-cursor
+mode -- always pass terminal.ApplicationCursor so the mode the application
+negotiated is respected. All three methods return null for keys that
+produce no terminal input.
+
+================================================================================
+
+WRITING A RENDERER
+===================
+
+The engine is renderer-agnostic: a host paints the buffer itself. The
+essentials every renderer needs:
+
+1. INDEXING. The cell at visible position (row, col) is
+   terminal.Buffer.Lines[terminal.Buffer.YDisp + row][col]. YDisp is the
+   VIEWPORT position; YBase is where the live screen starts. The two are
+   equal while following live output, but differ when the user scrolls
+   back - paint from YDisp, or scrolled-back views render the wrong rows.
+
+2. BLANK CELLS. Never draw CharData.Rune verbatim: a never-written cell
+   carries rune U+0200 (not a space) and paints a stray glyph. When
+   ch.IsBlank is true, paint only the background. Wide-character
+   continuation cells (ch.Width == 0) must be skipped too - the preceding
+   width-2 cell already covers them.
+
+3. ATTRIBUTES. Unpack the packed int with
+   var (fg, bg, flags) = CharacterAttribute.Unpack(ch.Attribute);
+   fg/bg are 256-color palette indices resolved against
+   Color.DefaultAnsiColors, except the sentinels
+   CharacterAttribute.DefaultColorIndex (256, use your default) and
+   InvertedDefaultColorIndex (257, use the inverted default). flags is the
+   FLAGS enum (BOLD, UNDERLINE, INVERSE, ...).
+
+4. DAMAGE TRACKING. The engine accumulates a dirty span of visible rows;
+   the renderer reads and clears it:
+       terminal.GetUpdateRange(out int startY, out int endY);
+       // paint rows startY..endY, then:
+       terminal.ClearUpdateRange();
+   startY == int.MaxValue (with endY == -1) means nothing is dirty. The
+   contract is renderer-clears: nothing resets the span except
+   ClearUpdateRange. Full-surface repaints each frame also work at modest
+   terminal sizes - damage tracking is the optimization, not a requirement.
+
+5. VIEWPORT. Mouse wheel -> terminal.ScrollLines(+/-lines); typing ->
+   terminal.ScrollToBottom(); use IsAtBottom to know whether to follow new
+   output; subscribe Scrolled (fires with the new Buffer.YDisp on every
+   viewport move) to sync a scrollbar.
+
+6. SELECTION. SelectionService endpoints (Start/End) are BUFFER-ABSOLUTE
+   points - selections survive scrolling - while its inputs take
+   viewport-relative rows. End is column-EXCLUSIVE: GetSelectedText()
+   copies [Start.X, End.X) on the end row, and Start == End yields empty
+   text (a plain click carries no text). Draw highlights with the same
+   convention or the highlight and the copied text disagree by one cell.
+   WARNING: SelectWordOrExpression takes (col, row) while its siblings
+   (StartSelection, DragExtend, ShiftExtend, SetSoftStart) take (row, col).
 
 ================================================================================
 
@@ -746,9 +862,10 @@ PERFORMANCE TIPS FOR CODING AGENTS
    to extract text content from a buffer line. Use trimRight: true to strip
    trailing whitespace.
 
-3. READ YBase + row: When reading visible buffer content, always use
-   terminal.Buffer.Lines[terminal.Buffer.YBase + row], not just Lines[row].
-   YBase accounts for scrollback.
+3. READ YBase/YDisp + row, never bare Lines[row]: the LIVE screen's row is
+   Lines[Buffer.YBase + row]; the VIEWPORT'S visible row (what a renderer
+   paints) is Lines[Buffer.YDisp + row]. The two differ while the user is
+   scrolled back. See WRITING A RENDERER.
 
 4. HANDLE WIDE CHARACTERS: CJK and emoji characters have Width = 2. Account
    for this when calculating column positions.
@@ -782,14 +899,20 @@ COMMON PITFALLS TO AVOID
 5. DO NOT assume all characters are width 1. CJK characters and emoji are
    width 2. Use Rune.ColumnWidth() or CharData.Width.
 
-6. DO NOT read Lines[row] directly. Use Lines[Buffer.YBase + row] to
-   account for scrollback history.
+6. DO NOT read Lines[row] directly. Use Lines[Buffer.YBase + row] for the
+   live screen, or Lines[Buffer.YDisp + row] for what the viewport shows
+   (they differ while scrolled back).
 
 7. DO NOT confuse byte length with character count. ustring.Length is bytes,
    ustring.RuneCount is characters.
 
 8. DO NOT forget that terminal coordinates are 0-based in the buffer, but
    escape sequences like CUP (\x1b[row;colH) use 1-based coordinates.
+
+9. DO NOT write "using CodeBrix.Terminal.Engine;" plus "using System;" and
+   then name Buffer - CS0104, it collides with System.Buffer. Alias it:
+
+       using TerminalBuffer = CodeBrix.Terminal.Engine.Buffer;
 
 ================================================================================
 
@@ -886,8 +1009,13 @@ Create terminal: new Terminal(null, new TerminalOptions { Cols = 80, Rows = 25 }
 Feed text:       terminal.Feed("text\r\n")
 Feed escape:     terminal.Feed("\x1b[1;31m")  // Bold red
 Reset attrs:     terminal.Feed("\x1b[0m")
-Read buffer:     terminal.Buffer.Lines[terminal.Buffer.YBase + row]
+Read buffer:     terminal.Buffer.Lines[terminal.Buffer.YBase + row]  (live
+                 screen; use YDisp instead of YBase for the viewport)
 Read char:       line[col].Code, line[col].Rune, line[col].Attribute
+Decode attrs:    var (fg, bg, flags) = CharacterAttribute.Unpack(attr)
+Blank cell:      line[col].IsBlank  (paint background only; Rune is U+0200)
+Encode key:      TerminalKeyEncoder.Encode(key, mods, term.ApplicationCursor)
+Scrollback:      terminal.ScrollLines(-n) / ScrollToBottom() / IsAtBottom
 Line to string:  line.TranslateToString(trimRight: true).ToString()
 Resize:          terminal.Resize(newCols, newRows)
 Scroll region:   terminal.Feed("\x1b[top;bottomr")

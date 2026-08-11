@@ -11,8 +11,20 @@ public class TerminalOptions {
     public string TermName;
     public CursorStyle CursorStyle;
     public bool ScreenReaderMode;
-    public int? Scrollback { get; }
-    public int? TabStopWidth { get; }
+
+    /// <summary>
+    /// Gets or sets the number of scrollback lines kept beyond the visible rows.
+    /// Defaults to 1000. Set this BEFORE constructing the <see cref="Terminal"/>:
+    /// the buffer sizes itself from this value.
+    /// </summary>
+    public int? Scrollback { get; set; }
+
+    /// <summary>
+    /// Gets or sets the tab stop width. Defaults to 8. Set this BEFORE
+    /// constructing the <see cref="Terminal"/>: tab stops are laid out from this
+    /// value when the buffer is created or resized.
+    /// </summary>
+    public int? TabStopWidth { get; set; }
 
     public TerminalOptions ()
     {

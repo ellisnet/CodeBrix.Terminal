@@ -68,4 +68,18 @@ public struct CharData {
     {
         return Rune == Null.Rune || Code == 0;
     }
+
+    /// <summary>
+    /// Gets a value indicating whether this cell has never been written (or was
+    /// erased) and should be rendered as blank. IMPORTANT for renderers: a
+    /// blank cell's <see cref="Rune"/> is U+0200 (a combining-mark placeholder),
+    /// NOT a space -- drawing <see cref="Rune"/> verbatim paints stray glyphs.
+    /// When this is <see langword="true"/>, draw the cell's background only (or
+    /// a space). Wide-character continuation cells are a separate case: they
+    /// have <see cref="Width"/> == 0 and should not be drawn either.
+    /// </summary>
+    public bool IsBlank
+    {
+        get { return IsNullChar (); }
+    }
 }
