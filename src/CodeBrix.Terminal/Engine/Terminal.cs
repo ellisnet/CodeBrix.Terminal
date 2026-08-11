@@ -349,7 +349,13 @@ public class Terminal {
     //
     // ESC c Full Reset (RIS)
     //
-    internal void Reset ()
+    /// <summary>
+    /// Performs a full terminal reset (RIS - Reset to Initial State), restoring the
+    /// terminal to its initial configuration and refreshing the whole display; a
+    /// terminal host clearing the screen between sessions calls this. Equivalent to
+    /// feeding the ESC c escape sequence: <c>Feed("\x1bc")</c>.
+    /// </summary>
+    public void Reset ()
     {
         Options.Rows = Rows;
         Options.Cols = Cols;

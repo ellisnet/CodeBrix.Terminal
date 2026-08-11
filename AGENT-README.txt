@@ -147,7 +147,8 @@ Cursor Operations:
 
 Terminal Control:
 
-    void Reset()
+    void Reset()                          // Full reset (RIS); equivalent to
+                                          //   Feed("\x1bc")
     void SoftReset()
     void Resize(int cols, int rows)
     void SetScrollRegion(int top, int bottom)
