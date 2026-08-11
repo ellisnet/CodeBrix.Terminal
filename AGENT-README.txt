@@ -91,15 +91,12 @@ The main entry point. Create a Terminal, feed it data, read the buffer.
 
 Constructor:
 
-    Terminal(ITerminalDelegate delegate, TerminalOptions options)
+    Terminal(ITerminalDelegate terminalDelegate = null,
+             TerminalOptions options = null)
 
-    // delegate can be null for basic usage
+    // both arguments are optional; delegate can be null for basic usage
     // options specifies Cols, Rows, and other terminal settings
-
-Constants:
-
-    Terminal.MINIMUM_COLS = 2
-    Terminal.MINIMUM_ROWS = 1
+    // dimensions are clamped to the internal minimums (2 cols x 1 row)
 
 Key Properties:
 
@@ -111,39 +108,43 @@ Key Properties:
     string IconTitle { get; }
     int Cols { get; }
     int Rows { get; }
-    bool MarginMode { get; set; }
-    bool OriginMode { get; set; }
-    bool Wraparound { get; set; }
-    bool ReverseWraparound { get; set; }
-    MouseMode MouseMode { get; set; }
-    MouseProtocolEncoding MouseProtocol { get; set; }
-    bool ApplicationCursor { get; set; }
-    bool ApplicationKeypad { get; set; }
-    bool InsertMode { get; set; }
-    int CurAttr { get; set; }            // Current character attribute
     ControlCodes ControlCodes { get; }
+
+    // Mode properties. These are READ-ONLY to consumers (their setters are
+    // internal); the terminal updates them itself in response to escape
+    // sequences fed into it:
+    bool MarginMode { get; }
+    bool OriginMode { get; }
+    bool Wraparound { get; }
+    bool ReverseWraparound { get; }
+    MouseMode MouseMode { get; }
+    MouseProtocolEncoding MouseProtocol { get; }
+    bool ApplicationCursor { get; }
+    bool ApplicationKeypad { get; }
+
+    // Writable public fields:
+    bool InsertMode
+    int CurAttr                          // Current character attribute
 
 Data Input Methods:
 
     void Feed(string text)                // Feed text/escape sequences
-    void Feed(byte[] data)                // Feed raw bytes
-    void Feed(byte[] data, int length)    // Feed raw bytes with length
-    void Feed(IntPtr data, int length)    // Feed from unmanaged memory
+    void Feed(byte[] data, int len = -1)  // Feed raw bytes (-1 = entire array)
+    void Feed(IntPtr data, int len = -1)  // Feed from unmanaged memory
 
 Display Management:
 
     void Refresh(int startRow, int endRow)
-    void UpdateRange(int y)
+    void GetUpdateRange(out int startY, out int endY)
     void ClearUpdateRange()
-    void ScrollLines(int lines)
-    void Scroll(bool isWrapped)
+    void ScrollLines(int disp, bool suppressScrollEvent = false)
 
 Cursor Operations:
 
     void SetCursor(int col, int row)
-    void ShowCursor(bool show)
-    void SaveCursor(int[] pars)
-    void RestoreCursor(int[] pars)
+    void ShowCursor()
+    void SaveCursor()
+    void RestoreCursor()
 
 Terminal Control:
 
@@ -154,29 +155,30 @@ Terminal Control:
     void SetScrollRegion(int top, int bottom)
     void SetCursorStyle(CursorStyle style)
 
-Title Management:
+Titles:
 
-    void SetTitle(string title)
-    void PushTitle()
-    void PopTitle()
-    void SetIconTitle(string title)
-    void PushIconTitle()
-    void PopIconTitle()
+    The title set/push/pop operations are internal: titles change in
+    response to escape sequences fed into the terminal (OSC 0/1/2 and the
+    xterm title-stack commands). Read the current values from the Title and
+    IconTitle properties, or observe changes via the ITerminalDelegate
+    SetTerminalTitle / SetTerminalIconTitle callbacks.
 
 Response/Output:
 
     void SendResponse(string text)
-    void SendResponse(byte[] data)
+    void SendResponse(params object[] args)  // concatenates string, byte and
+                                             //   byte[] fragments into one
+                                             //   response
 
 Events:
 
-    event Action Scrolled
-    event Action<string> DataEmitted
-    event Action LineFeedEvent
+    event Action<Terminal, int> Scrolled       // int is Buffer.YDisp
+    event Action<Terminal, string> DataEmitted
+    event Action<Terminal> LineFeedEvent
 
 Static Methods:
 
-    static string[] GetEnvironmentVariables()
+    static string[] GetEnvironmentVariables(string termName = null)
 
 ================================================================================
 
@@ -250,8 +252,10 @@ Buffer class - represents the terminal screen content:
     buffer.Clear();
     buffer.Resize(newCols, newRows);
     buffer.SetMargins(left, right);
-    string text = buffer.TranslateBufferLineToString(lineIndex, trimRight,
-                                                      startCol, endCol);
+    ustring text = buffer.TranslateBufferLineToString(lineIndex, trimRight,
+                                                       startCol, endCol);
+    // startCol/endCol are optional; returns ustring -- call .ToString()
+    // when a System.String is needed
 
 BufferLine class - a single line of characters:
 
@@ -263,7 +267,9 @@ BufferLine class - a single line of characters:
     line.InsertCells(pos, n, rightMargin, fillCharData);
     line.DeleteCells(pos, n, rightMargin, fillCharData);
     line.ReplaceCells(start, end, fillCharData);
-    string text = line.TranslateToString(trimRight, startCol, endCol);
+    ustring text = line.TranslateToString(trimRight, startCol, endCol);
+    // all three parameters are optional; returns ustring -- call
+    // .ToString() when a System.String is needed
 
 CharData struct - a single character with attributes:
 
@@ -337,7 +343,8 @@ Extension methods on MouseMode:
 
 Terminal mouse methods:
 
-    int flags = terminal.EncodeMouseButton(button, release, shift, meta, ctrl);
+    int flags = terminal.EncodeMouseButton(button, release, shift, meta,
+                                           control);
     terminal.SendEvent(buttonFlags, x, y);
     terminal.SendMouseMotion(buttonFlags, x, y);
 
@@ -365,9 +372,9 @@ For advanced customization:
     parser.SetEscHandlerFallback((collect, flag) => { });
 
 ParserState enum:
-    Ground, Escape, EscapeIntermediate, CsiEntry, CsiParam,
-    CsiIntermediate, CsiIgnore, OscString, DcsEntry, DcsParam,
-    DcsIgnore, DcsIntermediate, DcsPassthrough, SosPmApcString
+    Invalid, Ground, Escape, EscapeIntermediate, CsiEntry, CsiParam,
+    CsiIntermediate, CsiIgnore, SosPmApcString, OscString, DcsEntry,
+    DcsParam, DcsIgnore, DcsIntermediate, DcsPassthrough
 
 ================================================================================
 
@@ -458,25 +465,27 @@ Rune struct (in System namespace) - a Unicode code point:
     bool valid = r.IsValid;
     int width = Rune.ColumnWidth(r);     // 0 (non-spacing), 1, or 2 (wide)
 
-    // Classification
-    bool digit = r.IsDigit();
-    bool letter = r.IsLetter();
-    bool upper = r.IsUpper();
-    bool lower = r.IsLower();
-    bool space = r.IsSpace();
-    bool punct = r.IsPunct();
-    bool control = r.IsControl();
-    bool graphic = r.IsGraphic();
-    bool print = r.IsPrint();
+    // Classification (STATIC methods on Rune, not instance methods)
+    bool digit = Rune.IsDigit(r);
+    bool letter = Rune.IsLetter(r);
+    bool upper = Rune.IsUpper(r);
+    bool lower = Rune.IsLower(r);
+    bool space = Rune.IsWhiteSpace(r);
+    bool punct = Rune.IsPunctuation(r);
+    bool control = Rune.IsControl(r);
+    bool graphic = Rune.IsGraphic(r);
+    bool print = Rune.IsPrint(r);
+    // also available: IsSymbol, IsTitle, IsLetterOrDigit, IsLetterOrNumber
 
-    // Case conversion
-    Rune u = r.ToUpper();
-    Rune l = r.ToLower();
-    Rune t = r.ToTitle();
+    // Case conversion (STATIC methods on Rune)
+    Rune u = Rune.ToUpper(r);
+    Rune l = Rune.ToLower(r);
+    Rune t = Rune.ToTitle(r);
 
-    // Surrogate pair handling
-    Rune combined = Rune.EncodeSurrogatePair(high, low);
-    (uint high, uint low) = Rune.DecodeSurrogatePair(rune);
+    // Surrogate pair handling (bool try-pattern with out parameters)
+    bool ok = Rune.EncodeSurrogatePair(high, low, out Rune combined);
+    bool ok2 = Rune.DecodeSurrogatePair(rune, out char[] chars);
+    bool isPair = r.IsSurrogatePair;
 
 Utf8 static class - UTF-8 encoding utilities:
 
@@ -487,7 +496,7 @@ Utf8 static class - UTF-8 encoding utilities:
     bool valid = Utf8.Valid(buffer);
     int encLen = Utf8.EncodeRune(rune, dest, offset);
 
-Unicode static class - character classification:
+Unicode class (static methods) - character classification:
 
     bool digit = Unicode.IsDigit(codepoint);
     bool letter = Unicode.IsLetter(codepoint);
@@ -589,9 +598,9 @@ Example 3: Custom Terminal Delegate
 
     public class MyTerminalDelegate : SimpleTerminalDelegate
     {
-        public override void Send(byte[] data, int start, int length)
+        public override void Send(byte[] data)
         {
-            Console.WriteLine($"Terminal sent {length} bytes");
+            Console.WriteLine($"Terminal sent {data.Length} bytes");
         }
 
         public override void SizeChanged(Terminal source)
@@ -644,7 +653,7 @@ Example 5: Unicode Text Processing
     // Rune iteration
     foreach (var (index, rune) in text.Range())
     {
-        bool isLetter = new Rune(rune).IsLetter();
+        bool isLetter = Rune.IsLetter(new Rune(rune));
         int width = Rune.ColumnWidth(new Rune(rune));
     }
 
@@ -717,7 +726,7 @@ Then in Program.cs:
     for (int row = 0; row < 3; row++)
     {
         var line = terminal.Buffer.Lines[terminal.Buffer.YBase + row];
-        Console.WriteLine(line.TranslateToString(trimRight: true));
+        Console.WriteLine(line.TranslateToString(trimRight: true).ToString());
     }
 
 Build and run:
@@ -879,7 +888,7 @@ Feed escape:     terminal.Feed("\x1b[1;31m")  // Bold red
 Reset attrs:     terminal.Feed("\x1b[0m")
 Read buffer:     terminal.Buffer.Lines[terminal.Buffer.YBase + row]
 Read char:       line[col].Code, line[col].Rune, line[col].Attribute
-Line to string:  line.TranslateToString(trimRight: true)
+Line to string:  line.TranslateToString(trimRight: true).ToString()
 Resize:          terminal.Resize(newCols, newRows)
 Scroll region:   terminal.Feed("\x1b[top;bottomr")
 Rune width:      Rune.ColumnWidth(rune)
