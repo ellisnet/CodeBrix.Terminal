@@ -722,6 +722,9 @@ class InputHandler {
             } else if (p == 8) {
                 // invisible
                 flags |= FLAGS.INVISIBLE;
+            } else if (p == 9) {
+                // crossed-out (strikethrough)
+                flags |= FLAGS.CrossedOut;
             } else if (p == 2) {
                 // dimmed text
                 flags |= FLAGS.DIM;
@@ -744,6 +747,9 @@ class InputHandler {
             } else if (p == 28) {
                 // not invisible
                 flags &= ~FLAGS.INVISIBLE;
+            } else if (p == 29) {
+                // not crossed-out
+                flags &= ~FLAGS.CrossedOut;
             } else if (p == 39) {
                 // reset fg
                 fg = (CharData.DefaultAttr >> 9) & 0x1ff;

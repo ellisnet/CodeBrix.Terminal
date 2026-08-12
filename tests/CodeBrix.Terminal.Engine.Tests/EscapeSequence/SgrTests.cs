@@ -81,6 +81,37 @@ public class SgrTests : BaseTerminalTests
     }
 
     [Fact]
+    public void SGR_CrossedOut ()
+    {
+        Terminal.Feed ("\x1b[9m");
+        // CrossedOut flag = bit 7 (0x80 = 128)
+        (GetFlags () & 0x80).Should ().NotBe (0, "because CrossedOut flag should be set");
+    }
+
+    [Fact]
+    public void SGR_ResetCrossedOut ()
+    {
+        Terminal.Feed ("\x1b[9m");
+        Terminal.Feed ("\x1b[29m");
+        (GetFlags () & 0x80).Should ().Be (0, "because CrossedOut flag should be cleared");
+    }
+
+    [Fact]
+    public void SGR_CrossedOut_DoesNotDisturbOtherAttributes ()
+    {
+        // Crossed-out combined with color and bold in one sequence
+        Terminal.Feed ("\x1b[1;9;31m");
+        (GetFlags () & 0x80).Should ().NotBe (0, "because CrossedOut flag should be set");
+        (GetFlags () & 1).Should ().NotBe (0, "because BOLD flag should be set");
+        GetFg ().Should ().Be (1, "because fg should be red");
+
+        Terminal.Feed ("\x1b[29m");
+        (GetFlags () & 0x80).Should ().Be (0, "because CrossedOut flag should be cleared");
+        (GetFlags () & 1).Should ().NotBe (0, "because BOLD flag should survive SGR 29");
+        GetFg ().Should ().Be (1, "because fg should survive SGR 29");
+    }
+
+    [Fact]
     public void SGR_ResetBold ()
     {
         Terminal.Feed ("\x1b[1m"); // bold on

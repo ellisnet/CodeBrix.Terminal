@@ -103,6 +103,12 @@ public static class CharacterAttribute {
         if (ca.HasFlag (FLAGS.BOLD)) {
             result += ";1";
         }
+        if (ca.HasFlag (FLAGS.DIM)) {
+            result += ";2";
+        }
+        if (ca.HasFlag (FLAGS.ITALIC)) {
+            result += ";3";
+        }
         if (ca.HasFlag (FLAGS.UNDERLINE)) {
             result += ";4";
         }
@@ -115,30 +121,37 @@ public static class CharacterAttribute {
         if (ca.HasFlag (FLAGS.INVISIBLE)) {
             result += ";8";
         }
+        if (ca.HasFlag (FLAGS.CrossedOut)) {
+            result += ";9";
+        }
 
         int fg = (attribute >> 9) & 0x1ff;
 
+        // Named colors are 0-15 (30-37 dark / 90-97 bright); 16 and up are the
+        // 256-color cube and grayscale ramp, reported as 38;5;N. No parameter
+        // ends with a separator: a trailing ';' before 'm' would be parsed as
+        // an extra empty parameter, i.e. SGR 0 (reset).
         if (fg != Renderer.DefaultColor) {
-            if (fg > 16) {
+            if (fg >= 16) {
                 result += $";38;5;{fg}";
             } else {
                 if (fg >= 8) {
-                    result += $";{9}{fg - 8};";
+                    result += $";9{fg - 8}";
                 } else {
-                    result += $";{3}{fg};";
+                    result += $";3{fg}";
                 }
             }
         }
 
         int bg = attribute & 0x1ff;
         if (bg != Renderer.DefaultColor) {
-            if (bg > 16) {
+            if (bg >= 16) {
                 result += $";48;5;{bg}";
             } else {
                 if (bg >= 8) {
-                    result += $";{10}{bg - 8};";
+                    result += $";10{bg - 8}";
                 } else {
-                    result += $";{4}{bg};";
+                    result += $";4{bg}";
                 }
             }
         }
