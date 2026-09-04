@@ -37,6 +37,17 @@ REPOSITORY LAYOUT
     CodeBrix.Terminal.slnx              Full solution (includes the WinUI client).
     CodeBrix.Terminal.Testing.slnx      Build/test solution WITHOUT the WinUI
                                         client -- see TESTING.
+    global.json                         Selects the Microsoft.Testing.Platform
+                                        test runner. Does NOT pin an SDK
+                                        version. See BUILDING and TESTING.
+
+Both solutions carry a "Solution Items" folder holding the root files and a
+"Tests" folder holding the three test projects. Both list the same ten root
+files: .gitignore, AGENT-README.txt, EXTRAS-README.txt, global.json,
+icon-codebrix-128.png, LICENSE, MAINTAINER-README.txt, README-INDEX.txt,
+README.md and THIRD-PARTY-NOTICES.txt. Keep the two lists in step when a root
+file is added or removed. The solutions differ only in their project list:
+CodeBrix.Terminal.Testing.slnx omits the WinUI client -- see TESTING.
     src/CodeBrix.Terminal/              The library.
       Engine/                           Terminal engine (XtermSharp fork).
       Engine/InputHandlers/             CSI/mode/status command implementations.
@@ -69,6 +80,16 @@ BUILDING
     dotnet restore CodeBrix.Terminal.Testing.slnx
     dotnet build   CodeBrix.Terminal.Testing.slnx
 
+global.json at the repo root does NOT pin an SDK version, so the newest
+installed .NET 10 SDK is still used. It exists solely to select the test
+runner:
+
+    { "test": { "runner": "Microsoft.Testing.Platform" } }
+
+Because that setting lives in global.json rather than in the csprojs, it
+applies to every `dotnet test` run anywhere in the repository, including CI.
+Keep the file committed -- see TESTING.
+
 The library targets net10.0 with <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 (the parser's print and DCS paths take byte pointers). Both engine test
 projects set AllowUnsafeBlocks too.
@@ -82,6 +103,13 @@ cannot build on Linux or macOS.
 TESTING
 =======
     dotnet test CodeBrix.Terminal.Testing.slnx
+
+THE TEST RUNNER IS Microsoft.Testing.Platform (MTP), selected by global.json at
+the repo root. Do not delete that file; without it, `dotnet test` falls back to
+the older VSTest bridge. You can tell which one ran: MTP output ends in a
+"Test run summary:" block, while the VSTest bridge invokes MSBuild with
+`--target:VSTest`. None of the three test projects carries a coverage
+collector.
 
 CodeBrix.Terminal.Testing.slnx exists precisely so that build-and-test works
 off Windows: it is the full solution minus the WinUI client project. Always

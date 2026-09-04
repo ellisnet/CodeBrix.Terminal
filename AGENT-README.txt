@@ -21,7 +21,8 @@ NuGet dependencies beyond the .NET runtime itself.
 Target framework: .NET 10 or later.
 
 Provenance: the engine is a fork of XtermSharp (by Miguel de Icaza, itself a
-port of xterm.js) and the Unicode text utilities derive from NStack 1.1.1.
+port of xterm.js) and the Unicode text utilities derive from NStack; the exact
+upstream releases are recorded in THIRD-PARTY-NOTICES.txt.
 Every engine namespace was renamed from "XtermSharp" to
 "CodeBrix.Terminal.Engine" and every text namespace from "NStack" to
 "CodeBrix.Terminal.Text". Do NOT write "using XtermSharp;" or "using NStack;".
