@@ -1,6 +1,13 @@
 ﻿using System;
 namespace CodeBrix.Terminal.Engine; //was previously: namespace XtermSharp;
 
+// IMPORTANT: this is NOT the width table the engine uses.  The terminal measures
+// every printed character with Rune.ColumnWidth (Text/Rune.ColumnWidth.cs), which
+// carries the current wide and combining tables, including the emoji ranges that
+// the older table below does not know about.  RuneHelper is kept because it is
+// public API, and it answers 1 for characters that Rune.ColumnWidth answers 2 for,
+// so prefer Rune.ColumnWidth (or CharData.Width) whenever the answer has to agree
+// with what the terminal put in the buffer.
 public static class RuneHelper {
     // extracted from https://www.cl.cam.ac.uk/%7Emgk25/ucs/wcwidth.c
 
@@ -87,7 +94,9 @@ public static class RuneHelper {
         if (rune >= 0x7f && rune <= 0xa0)
             return 0;
         /* binary search in table of non-spacing characters */
-        if (bisearch (rune, combining, combining.GetLength (0)) != 0)
+        // bisearch takes the LAST index of the table, not the count: passing the count
+        // read one row past the end and threw for every rune above 0xa0
+        if (bisearch (rune, combining, combining.GetLength (0) - 1) != 0)
             return 0;
         /* if we arrive here, ucs is not a combining or C0/C1 control character */
         return 1 +

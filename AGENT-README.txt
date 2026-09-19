@@ -136,6 +136,9 @@ SUPPORTED FEATURES
   - Window-manipulation commands routed to the host delegate
   - Keyboard-to-VT input encoding, application-cursor aware
   - Terminal resize with reflow (wider and narrower strategies)
+  - Wide characters: CJK, Hangul, fullwidth forms and emoji take two cells;
+    combining marks compose into the character they follow (see CHARACTER
+    WIDTHS)
   - Search and selection services over the scrollback
   - PTY fork/exec, window-size and available-bytes on Unix/macOS
   - Unicode 15.0.0 classification, case conversion and case folding
@@ -202,6 +205,20 @@ Data input:
     void Feed(byte[] data, int len = -1)    // raw bytes; -1 means "all"
     void Feed(IntPtr data, int len = -1)    // unmanaged memory
 
+    FEEDING NOTHING IS SAFE. A null or empty string, a null or empty array, a
+    length of zero and (for the IntPtr overload) a non-positive length are all
+    quiet no-ops: nothing is written, the cursor does not move, the damage span
+    is untouched and no exception is thrown. The parser also KEEPS the state it
+    was in, so an empty feed in the middle of a sequence does not break it:
+    Feed("\x1b["), Feed(""), Feed("31mX") still prints a red X. The same holds
+    for a multi-byte character split across feeds.
+
+    For the byte[] overload, any negative len means "the whole array" and a len
+    larger than the array is clamped to it, so a miscounted length can never
+    read past the data. The IntPtr overload cannot clamp -- unmanaged memory
+    carries no length -- so it reads exactly len bytes and treats anything
+    non-positive as nothing to do.
+
 Display and damage:
 
     void Refresh(int startRow, int endRow)
@@ -250,7 +267,10 @@ Terminal control:
     void Reset()                            // full reset (RIS); equivalent to
                                             //   Feed("\x1bc")
     void SoftReset()                        // DECSTR
-    void Resize(int cols, int rows)
+    void Resize(int cols, int rows)         // see RESIZING AND REFLOW: an
+                                            //   application that writes its own
+                                            //   input line must repaint it after
+                                            //   a resize to FEWER columns
     void SetScrollRegion(int top, int bottom)
     void SetCursorStyle(CursorStyle style)
 
@@ -442,8 +462,11 @@ CharData (struct) -- one cell:
     int Attribute;                          // packed styling (fg, bg, flags)
     Rune Rune;                              // the code point
     int Width;                              // display width: 0, 1 or 2
-                                            //   (0 = the continuation cell of
-                                            //   a wide character)
+                                            //   (2 = a wide character, which
+                                            //   owns THIS cell and the next;
+                                            //   0 = that next cell, the
+                                            //   placeholder). See CHARACTER
+                                            //   WIDTHS.
     int Code;                               // the code point as an int
 
     CharData(int attribute, Rune rune, int width, int code)
@@ -471,6 +494,123 @@ BufferSet -- the normal and alternate screens:
     void ActivateAltBuffer(int? fillAttr)
     void Resize(int newColumns, int newRows)
     void SetupTabStops(int index = -1)
+
+
+CHARACTER WIDTHS
+----------------
+A terminal cell is one column wide, but a character is not: the engine measures
+every printed character with Rune.ColumnWidth and lays it out accordingly. This
+is the single most important thing to get right when you read or paint the
+buffer.
+
+TWO CELLS (CharData.Width == 2)
+    CJK ideographs, Hangul syllables, kana, fullwidth forms, the wide
+    punctuation and symbol ranges, and emoji (including the astral-plane ones,
+    four UTF-8 bytes each). The CHARACTER is stored in the first cell, with
+    Width 2; the cell after it is a PLACEHOLDER with Width 0, Code 0 and no
+    character of its own. The cursor advances by two columns.
+
+ONE CELL (CharData.Width == 1)
+    ASCII, accented Latin letters, Greek, Cyrillic, box-drawing and the rest of
+    the narrow world -- and also anything Rune.ColumnWidth reports as not
+    printable (C0/C1 codes and stray bytes that reach the screen), which is
+    given a single cell rather than being dropped.
+
+NO CELL OF ITS OWN (combining marks and format characters)
+    A cell holds exactly ONE code point, so a mark that Rune.ColumnWidth
+    reports as zero columns is handled in three steps, in this order:
+
+    1. COMPOSED into the character before it when Unicode has a single code
+       point for the pair. "e" followed by U+0301 becomes U+00E9 in that one
+       cell -- same Rune, same Code, same Width, same attribute as if you had
+       fed the precomposed letter. Marks compose one at a time, so a second
+       mark composes with the result of the first, and a Hangul lead consonant
+       plus its vowel and final becomes the one syllable inside its two-cell
+       character. THE BASE CHARACTER IS NEVER REPLACED BY A MARK.
+    2. DROPPED when it is a format character with no glyph of its own: the
+       variation selectors (U+FE00-U+FE0F, U+E0100-U+E01EF), the tag
+       characters, ZERO WIDTH JOINER and NON-JOINER, and the other zero-width
+       format characters (U+200B-U+200F, U+202A-U+202E, U+2060-U+2064,
+       U+206A-U+206F, U+FEFF, U+FFF9-U+FFFB). A heart followed by
+       VARIATION SELECTOR-16 stays a heart, and an emoji ZWJ sequence leaves
+       each emoji standing in its own two cells.
+    3. GIVEN A CELL OF ITS OWN otherwise -- a mark with no precomposed form
+       (Thai and Lao vowel signs, Arabic harakat, Hebrew points, a second
+       stacked mark). Nothing is lost: the base character keeps its cell and
+       the mark takes the next one, as a width 1 cell that wraps and shifts
+       like any other. The cost is that such a row is one column longer than
+       the program that wrote it believes.
+
+    A mark that arrives with nothing to its left (column 0, or a blank cell
+    before it) falls to step 3 as well. In every case a renderer only ever
+    draws one code point per cell.
+
+Consequences you must plan for:
+  - A row of N cells holds FEWER than N characters as soon as one of them is
+    wide. Never equate "column" with "character".
+  - Reading text: BufferLine.TranslateToString and
+    Buffer.TranslateBufferLineToString return each character ONCE -- they skip
+    the placeholders -- while their column arguments (startCol/endCol), the
+    Start/End points of SelectionService and the Start/End points of a
+    SearchSnapshot result all count a wide character as TWO columns, because
+    those are cell coordinates.
+  - Writing: a wide character that does not fit in the last column moves WHOLE
+    to the next row (with autowrap on; the row it leaves keeps a blank last
+    cell, and the new row has IsWrapped == true). With autowrap off it is
+    dropped, exactly as a real terminal drops it, and the cursor does not move.
+  - Overwriting half of a wide character -- printing over either of its cells,
+    or an erase, insert or delete that covers only one of them -- removes the
+    WHOLE character and leaves blanks. The buffer never holds half a character:
+    a Width 2 cell is always followed by its Width 0 placeholder, and a Width 0
+    cell always follows the character that owns it.
+  - Rune.ColumnWidth(rune) gives the same answer the engine uses, so a host
+    that measures text before feeding it stays in step. RuneHelper.ConsoleWidth
+    is an older table that does not know the emoji ranges -- do not use it to
+    predict what the buffer will contain.
+
+
+RESIZING AND REFLOW
+-------------------
+Terminal.Resize(cols, rows) re-lays the buffer. Wrapped lines ABOVE the
+cursor's line reflow in both directions and lose nothing: narrowing re-wraps
+them onto more rows, widening joins them back, and a narrow-then-widen round
+trip gives back the rows you started with. A wide character is never split
+across the boundary -- it moves to the next row whole.
+
+THE WRAPPED-LINE GROUP THAT HOLDS THE CURSOR IS DIFFERENT. It is deliberately
+NOT re-laid: it is cut to the new width. This is what xterm does, and it is
+what the applications inside a terminal expect -- a shell or a REPL repaints
+its own input line when the size changes, and a terminal that re-laid that line
+as well would show it twice.
+
+So on a 40-column terminal, with this on the cursor's own line:
+
+    chat> a line being edited that changes s      <- row 0, 40 cells
+    ize                                           <- row 1, wrapped
+
+Resize(30, rows) leaves:
+
+    chat> a line being edited that                <- row 0, cut to 30
+    ize                                           <- row 1, untouched
+
+" changes s" is GONE, and widening again does not bring it back.
+
+WHAT THIS MEANS FOR YOU: if your application writes its own prompt or input
+line (a REPL, a chat box, anything that echoes what the user is typing),
+REPAINT THAT LINE after you call Resize with fewer columns -- clear it and
+write it again from your own copy of the text. If the text comes from a process
+through a PTY, tell the process about the new size instead (Pty.SetWinSize on
+Unix) and let it repaint, which is what it is written to do.
+
+Other things Resize does:
+  - Rows: growing pulls lines back from the scrollback when there are any, and
+    the cursor keeps its place in the buffer (YBase and Y move together);
+    shrinking pushes lines into the scrollback the same way.
+  - The cursor is clamped into the new grid, and the left/right margins are
+    clamped to the new width.
+  - The ALTERNATE buffer has no scrollback and is therefore not reflowed at
+    all. Applications that use it (editors, pagers) redraw the whole screen
+    after a size change.
 
 
 ATTRIBUTE PACKING
@@ -1111,6 +1251,12 @@ UTILITY TYPES
         public static int ConsoleWidth(this uint rune);
     }
 
+    RuneHelper carries an OLDER width table than the one the engine uses, and
+    the two disagree (it reports emoji as one column wide, while the engine
+    gives them two). Use Rune.ColumnWidth(rune), or the CharData.Width the
+    engine already wrote into the cell, whenever the answer has to match the
+    buffer.
+
     public class RuneExt                     // UTF-8 byte-level helpers
     {
         public static int ExpectedSizeFromFirstByte(byte b);
@@ -1136,9 +1282,16 @@ essentials every renderer needs:
 
 2. BLANK CELLS. Never draw CharData.Rune verbatim: a never-written cell
    carries rune U+0200 (not a space) and paints a stray glyph. When
-   ch.IsBlank is true, paint only the background. Wide-character continuation
+   ch.IsBlank is true, paint only the background. Wide-character placeholder
    cells (ch.Width == 0) must be skipped too -- the preceding width-2 cell
    already covers them.
+
+2a. CELL WIDTHS. Advance by ch.Width, not by one: a cell with Width 2 holds a
+   character that must be drawn across TWO cell widths (its glyph is drawn
+   once, spanning that cell and the placeholder after it), a cell with Width 0
+   is that placeholder and is not drawn at all, and everything else is one
+   cell. Painting every cell as one column puts every character after the
+   first wide one in the wrong place. See CHARACTER WIDTHS.
 
 3. ATTRIBUTES. Unpack the packed int:
        var (fg, bg, flags) = CharacterAttribute.Unpack(ch.Attribute);
@@ -1176,7 +1329,10 @@ essentials every renderer needs:
    YBase, honoring terminal.CursorHidden and Options.CursorStyle. When your
    surface changes size, call terminal.Resize(cols, rows) and push the new
    size to the process too (Pty.SetWinSize on Unix); the delegate's
-   SizeChanged callback fires after a resize.
+   SizeChanged callback fires after a resize. Resizing to FEWER columns cuts
+   the wrapped-line group the cursor sits in instead of re-laying it, so an
+   application that writes its own input line has to repaint that line
+   afterwards -- see RESIZING AND REFLOW.
 
 8. KEYBOARD. Do not invent escape sequences: run key events through
    TerminalKeyEncoder and hand the result to your transport (or straight back
@@ -1205,6 +1361,10 @@ Example 1: Create a terminal and read the buffer
     for (int col = 0; col < terminal.Cols; col++)
     {
         var ch = line[col];
+        // Width 0 cells are the placeholder half of a wide character and carry
+        // Code 0, so this skips them. The cast to char only holds for the Basic
+        // Multilingual Plane: for real text, including emoji, read the line with
+        // line.TranslateToString(trimRight: true) instead.
         if (ch.Code != 0)
             Console.Write((char)ch.Code);
     }
@@ -1497,7 +1657,8 @@ PERFORMANCE TIPS
    blanks.
 
 6. USE Rune.ColumnWidth() (or CharData.Width) instead of assuming width 1.
-   CJK and emoji occupy two columns, and combining marks occupy none.
+   CJK and emoji occupy two columns, and a combining mark occupies none of
+   its own -- it composes into the character before it.
 
 7. EXTEND SimpleTerminalDelegate rather than implementing all seven
    ITerminalDelegate members when you only care about one or two.
@@ -1546,6 +1707,24 @@ COMMON PITFALLS TO AVOID
    U+0200, not a space -- check ch.IsBlank and paint background only. Skip
    ch.Width == 0 cells; they are the second half of a wide character.
 
+6a. DO NOT assume one cell per character. CJK, Hangul, fullwidth forms and
+    emoji occupy TWO cells (Width 2 plus a Width 0 placeholder), a combining
+    mark usually composes into the character before it and takes none, and the
+    cursor advances by the width -- so Buffer.X after feeding three characters
+    is not necessarily 3. Advance by ch.Width when you paint, and count a wide
+    character as two columns in any column arithmetic. See CHARACTER WIDTHS.
+
+6c. DO NOT expect a cell to hold a character plus its marks. A cell holds one
+    code point: "e" and U+0301 come back as the single letter U+00E9, a
+    variation selector or joiner is dropped, and a mark with no precomposed
+    form (Thai vowel signs, Arabic harakat) gets a cell of its own instead --
+    so a row carrying such text is one column longer than the program that
+    wrote it expects. Feeding precomposed (NFC) text avoids that entirely.
+
+6b. DO NOT measure text with RuneHelper.ConsoleWidth and expect it to match
+    the buffer. It is an older table that reports emoji as one column;
+    Rune.ColumnWidth is what the engine uses.
+
 7. DO NOT hand-roll the attribute bit shifts. Use
    CharacterAttribute.Unpack(attr) and the DefaultColorIndex /
    InvertedDefaultColorIndex sentinels, which are 256 and 257 and are NOT
@@ -1593,6 +1772,14 @@ COMMON PITFALLS TO AVOID
     nearest palette index.
 
 19. DO NOT target .NET versions below 10.0.
+
+20. DO NOT expect Resize to re-lay the line the cursor is on. Wrapped lines
+    above it reflow and lose nothing, but the group holding the cursor is cut
+    to the new width -- that is xterm's rule, because the application owns
+    that line. If YOUR application writes the input line (a REPL, a chat),
+    repaint it after every Resize to fewer columns; if a process writes it,
+    push the new size to the process (Pty.SetWinSize) and let it repaint. See
+    RESIZING AND REFLOW.
 
 
 ================================================================================
@@ -1647,6 +1834,28 @@ Feature-to-test-file map:
 
   CharData semantics, including blank cells and wide characters
     https://github.com/ellisnet/CodeBrix.Terminal/blob/main/tests/CodeBrix.Terminal.Engine.Tests/CharDataTests.cs
+
+  Feeding the terminal nothing, and split or over-long payloads
+    https://github.com/ellisnet/CodeBrix.Terminal/blob/main/tests/CodeBrix.Terminal.Engine.Tests/TerminalFeedTests.cs
+
+  Character widths: two-cell characters, placeholders, wrapping, insert mode,
+  erasing half a wide character
+    https://github.com/ellisnet/CodeBrix.Terminal/blob/main/tests/CodeBrix.Terminal.Engine.Tests/WideCharacterTests.cs
+
+  Combining marks: composing, dropped format characters, marks that keep a cell
+    https://github.com/ellisnet/CodeBrix.Terminal/blob/main/tests/CodeBrix.Terminal.Engine.Tests/CombiningMarkTests.cs
+
+  BufferLine cell arithmetic around wide characters
+    https://github.com/ellisnet/CodeBrix.Terminal/blob/main/tests/CodeBrix.Terminal.Engine.Tests/BufferLineTests.cs
+
+  Resize and reflow: above the cursor, the cursor's own group, rows, margins
+    https://github.com/ellisnet/CodeBrix.Terminal/blob/main/tests/CodeBrix.Terminal.Engine.Tests/BufferResizeTests.cs
+
+  RuneHelper.ConsoleWidth versus Rune.ColumnWidth
+    https://github.com/ellisnet/CodeBrix.Terminal/blob/main/tests/CodeBrix.Terminal.Engine.Tests/RuneHelperTests.cs
+
+  SearchService snapshots, find results and their column coordinates
+    https://github.com/ellisnet/CodeBrix.Terminal/blob/main/tests/CodeBrix.Terminal.Engine.Tests/SearchServiceTests.cs
 
   SelectionService coordinate conventions and GetSelectedText
     https://github.com/ellisnet/CodeBrix.Terminal/blob/main/tests/CodeBrix.Terminal.Engine.Tests/SelectionServiceTests.cs
@@ -1745,11 +1954,15 @@ Feed escape:      terminal.Feed("\x1b[1;31m")     // bold red
 Reset attrs:      terminal.Feed("\x1b[0m")
 Full reset:       terminal.Reset()  /  terminal.SoftReset()
 Resize:           terminal.Resize(newCols, newRows)
+                  // fewer columns cuts the cursor's own wrapped line: repaint
+                  //   your input line afterwards
 Scroll region:    terminal.SetScrollRegion(top, bottom)   // 0-based
 
 Live screen row:  terminal.Buffer.Lines[terminal.Buffer.YBase + row]
 Viewport row:     terminal.Buffer.Lines[terminal.Buffer.YDisp + row]
 Read a cell:      line[col].Rune / .Code / .Attribute / .Width / .IsBlank
+Cell width:       line[col].Width   // 2 = wide character, 0 = its placeholder,
+                                    //   1 = everything else
 Cell by coords:   terminal.Buffer.GetChar(col, row)
 Line to string:   line.TranslateToString(trimRight: true).ToString()
 Decode attrs:     var (fg, bg, flags) = CharacterAttribute.Unpack(attr)

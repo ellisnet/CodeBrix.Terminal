@@ -60,4 +60,82 @@ public class SelectionServiceTests
         selection.Start.Y.Should ().Be (yDisp + screenRow);
         selection.End.Y.Should ().Be (yDisp + screenRow);
     }
+
+    #region Fullwidth characters
+
+    const string Ideograph = "漢";
+
+    static Terminal CreateWideCharTerminal ()
+    {
+        var terminal = new Terminal (null, new TerminalOptions { Cols = 20, Rows = 5 });
+        // "ab" then an ideograph in columns 2 and 3, then "cd"
+        terminal.Feed ("ab" + Ideograph + "cd");
+
+        return terminal;
+    }
+
+    [Fact]
+    public void GetSelectedText_returns_a_fullwidth_character_once ()
+    {
+        //Arrange
+        var terminal = CreateWideCharTerminal ();
+        var selection = new SelectionService (terminal);
+
+        //Act -- the selection covers all six columns of the row
+        selection.StartSelection (row: 0, col: 0);
+        selection.DragExtend (row: 0, col: 6);
+
+        //Assert
+        selection.GetSelectedText ().Should ().Be ("ab" + Ideograph + "cd");
+    }
+
+    [Fact]
+    public void GetSelectedText_counts_a_fullwidth_character_as_two_columns ()
+    {
+        //Arrange
+        var terminal = CreateWideCharTerminal ();
+        var selection = new SelectionService (terminal);
+
+        //Act -- stop at the column after the ideograph's placeholder
+        selection.StartSelection (row: 0, col: 0);
+        selection.DragExtend (row: 0, col: 4);
+
+        //Assert
+        selection.GetSelectedText ().Should ().Be ("ab" + Ideograph);
+    }
+
+    [Fact]
+    public void SelectWordOrExpression_on_a_fullwidth_character_selects_the_whole_word ()
+    {
+        //Arrange
+        var terminal = CreateWideCharTerminal ();
+        var selection = new SelectionService (terminal);
+
+        //Act -- click the ideograph itself
+        selection.SelectWordOrExpression (col: 2, row: 0);
+
+        //Assert -- the placeholder does not end the word, and the end column counts
+        //both cells of the ideograph
+        selection.Start.X.Should ().Be (0);
+        selection.End.X.Should ().Be (6);
+        selection.GetSelectedText ().Should ().Be ("ab" + Ideograph + "cd");
+    }
+
+    [Fact]
+    public void SelectWordOrExpression_on_a_placeholder_selects_the_same_word ()
+    {
+        //Arrange
+        var terminal = CreateWideCharTerminal ();
+        var selection = new SelectionService (terminal);
+
+        //Act -- click the second cell of the ideograph
+        selection.SelectWordOrExpression (col: 3, row: 0);
+
+        //Assert
+        selection.Start.X.Should ().Be (0);
+        selection.End.X.Should ().Be (6);
+        selection.GetSelectedText ().Should ().Be ("ab" + Ideograph + "cd");
+    }
+
+    #endregion
 }

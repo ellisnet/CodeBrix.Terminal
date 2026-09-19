@@ -182,6 +182,11 @@ public class SelectionService {
         row += terminal.Buffer.YDisp;
         var buffer = terminal.Buffer;
 
+        // a click on the placeholder cell of a fullwidth character is a click on the
+        // character, which is stored in the cell before it
+        if (col > 0 && buffer.GetChar (col, row).Width == 0)
+            col--;
+
         Func<CharData, bool> isLetterOrChar = (cd) => {
             if (cd.IsNullChar ())
                 return false;
@@ -379,6 +384,13 @@ public class SelectionService {
         var left = colScan;
         while (colScan >= 0) {
             var ch = buffer.GetChar(colScan, row);
+            // the placeholder cell of a fullwidth character belongs to the character
+            // in the cell before it, so step over it rather than ending the run here
+            if (ch.Width == 0) {
+                colScan -= 1;
+                continue;
+            }
+
             if (!includeFunc (ch)) {
                 break;
             }
@@ -393,6 +405,14 @@ public class SelectionService {
         var limit = terminal.Cols;
         while (colScan < limit) {
             var ch = buffer.GetChar (colScan, row);
+
+            // the placeholder cell belongs to the fullwidth character just included, so
+            // the run covers it too and the end column counts both of its cells
+            if (ch.Width == 0) {
+                colScan += 1;
+                right = colScan;
+                continue;
+            }
 
             if (!includeFunc (ch)) {
                 break;

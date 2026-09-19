@@ -302,18 +302,49 @@ public class Terminal {
         Report ("LOG", text, args);
     }
 
+    /// <summary>
+    /// Feeds the terminal with the raw bytes of a data stream (text and escape
+    /// sequences)
+    /// </summary>
+    /// <param name="data">The bytes to parse.  A null or empty array is a quiet
+    /// no-op: nothing is written, the cursor does not move and the parser keeps the
+    /// state it was in, including a half-received escape sequence or UTF-8
+    /// character.</param>
+    /// <param name="len">How many bytes of <paramref name="data"/> to parse.  A
+    /// negative value means the whole array, and a value larger than the array is
+    /// clamped to it.</param>
     public void Feed (byte [] data, int len = -1)
     {
         input.Parse (data, len);
     }
 
+    /// <summary>
+    /// Feeds the terminal with the raw bytes of a data stream held in unmanaged
+    /// memory
+    /// </summary>
+    /// <param name="data">Pointer to the bytes to parse.  <see cref="IntPtr.Zero"/>
+    /// is a quiet no-op.</param>
+    /// <param name="len">How many bytes to parse.  Unmanaged memory carries no
+    /// length of its own, so a non-positive value is a quiet no-op rather than
+    /// "all": nothing is written, the cursor does not move and the parser keeps the
+    /// state it was in.</param>
     public void Feed (IntPtr data, int len = -1)
     {
         input.Parse (data, len);
     }
 
+    /// <summary>
+    /// Feeds the terminal with text and/or escape sequences, encoded as UTF-8
+    /// </summary>
+    /// <param name="text">The text to parse.  A null or empty string is a quiet
+    /// no-op: nothing is written, the cursor does not move and the parser keeps the
+    /// state it was in, so feeding "" in the middle of an escape sequence does not
+    /// break the sequence.</param>
     public void Feed (string text)
     {
+        if (String.IsNullOrEmpty (text))
+            return;
+
         var bytes = Encoding.UTF8.GetBytes (text);
         Feed (bytes, bytes.Length);
     }

@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.Drawing;
 using System.Text;
 
+using Rune = System.Rune;
+
 namespace CodeBrix.Terminal.Engine; //was previously: namespace XtermSharp;
 
 /// <summary>
@@ -148,7 +150,7 @@ public class SearchSnapshot {
                     }
 
 
-                    result.Start = new Point (index - lineStartCount - startOffset, startFragment.Line);
+                    result.Start = new Point (ToColumn (startFragment.Text, index - lineStartCount - startOffset), startFragment.Line);
 
                     int endFragmentIndex = lines [i].GetFragmentIndexForPosition (index - lineStartCount + txt.Length - 1);
                     LineFragment endFragment = lines [i].GetFragment (endFragmentIndex);
@@ -158,7 +160,7 @@ public class SearchSnapshot {
                         endOffset += lines [i].GetFragment (fi).Length;
                     }
 
-                    result.End = new Point (index - lineStartCount + txt.Length - endOffset, endFragment.Line);
+                    result.End = new Point (ToColumn (endFragment.Text, index - lineStartCount + txt.Length - endOffset), endFragment.Line);
 
                     // now, we need to fix up the end points because we might be on wrapped line
                     // which line fragment is the text on
@@ -207,6 +209,33 @@ public class SearchSnapshot {
             CurrentSearchResult = LastSearchResults.Length - 1;
 
         return LastSearchResults [CurrentSearchResult];
+    }
+
+    //
+    // Turns a character offset inside a fragment into the buffer column it points at.
+    // The fragment text holds each character once, but a fullwidth character occupies
+    // two cells in the buffer, so the two only agree while a row is all narrow.
+    //
+    static int ToColumn (string text, int offset)
+    {
+        var column = 0;
+        var index = 0;
+        while (index < offset && index < text.Length) {
+            var codePoint = (int)text [index];
+            var units = 1;
+            if (char.IsHighSurrogate (text [index]) && index + 1 < text.Length && char.IsLowSurrogate (text [index + 1])) {
+                codePoint = char.ConvertToUtf32 (text [index], text [index + 1]);
+                units = 2;
+            }
+
+            // a combining mark is stored in the cell of the character it belongs to, so
+            // the cell it stands for is still one column wide
+            var width = Rune.ColumnWidth ((Rune)codePoint);
+            column += width < 1 ? 1 : width;
+            index += units;
+        }
+
+        return column;
     }
 
     string GetTextFromLines (Line [] lines)

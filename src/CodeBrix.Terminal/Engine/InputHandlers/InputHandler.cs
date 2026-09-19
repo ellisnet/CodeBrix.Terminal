@@ -1,6 +1,7 @@
 ﻿using CodeBrix.Terminal.Engine.CommandExtensions;
 using System;
 using System.Collections.Generic;
+using System.Text;
 
 using Rune = System.Rune;
 
@@ -273,8 +274,17 @@ class InputHandler {
 
     public void Parse (byte [] data, int length = -1)
     {
-        if (length == -1)
+        // Nothing to parse is not an error: no data, no state change.  A negative
+        // length means "the whole array", and a length past the end of the array is
+        // clamped to it, so that neither can index outside the data.
+        if (data == null || data.Length == 0)
+            return;
+
+        if (length < 0 || length > data.Length)
             length = data.Length;
+
+        if (length == 0)
+            return;
 
         var buffer = terminal.Buffer;
         var cursorStartX = buffer.X;
@@ -291,6 +301,11 @@ class InputHandler {
 
     public void Parse (IntPtr data, int length)
     {
+        // Unmanaged memory carries no length of its own, so a non-positive length
+        // (and a null pointer) can only mean "nothing to parse"
+        if (data == IntPtr.Zero || length <= 0)
+            return;
+
         var buffer = terminal.Buffer;
         var cursorStartX = buffer.X;
         var cursorStartY = buffer.Y;
@@ -918,10 +933,34 @@ class InputHandler {
 
         var buffer = terminal.Buffer;
         var line = buffer.Lines [buffer.YBase + buffer.Y];
-        CharData cd = buffer.X - 1 < 0 ? new CharData (CharData.DefaultAttr) : line [buffer.X - 1];
-        line.ReplaceCells (buffer.X,
-            buffer.X + p,
-            cd);
+
+        // a fullwidth character is stored in the cell before its placeholder, so the
+        // cell right behind the cursor can be the placeholder rather than the character
+        var source = buffer.X - 1;
+        if (source > 0 && line [source].Width == 0)
+            source--;
+
+        CharData cd = source < 0 ? new CharData (CharData.DefaultAttr) : line [source];
+        var chWidth = Math.Max (cd.Width, 1);
+        var right = terminal.MarginMode ? buffer.MarginRight : terminal.Cols - 1;
+
+        // only as many copies as fit whole between the cursor and the right edge
+        p = Math.Min (p, Math.Max (0, (right - buffer.X + 1) / chWidth));
+
+        // blank the run first: that also cleans up a fullwidth character the run cuts
+        // in half at either end
+        var blank = new CharData (cd.Attribute);
+        line.ReplaceCells (buffer.X, buffer.X + (p * chWidth), blank);
+
+        // then lay the character down again, each copy taking its own placeholder along
+        var placeholder = blank;
+        placeholder.Width = 0;
+        var col = buffer.X;
+        while (p-- > 0) {
+            line [col++] = cd;
+            for (int i = 1; i < chWidth; i++)
+                line [col++] = placeholder;
+        }
         // FIXME: no UpdateRange here?
     }
 
@@ -1196,6 +1235,80 @@ class InputHandler {
         readingBuffer.Reset ();
     }
 
+    //
+    // Returns the index of the cell a combining mark belongs to: the cell before the
+    // cursor, or the one before that when the cursor sits on the placeholder cell of a
+    // fullwidth character.  Returns -1 when there is nothing to combine with -- the
+    // cursor is at the left edge, or the cell there was never written.
+    //
+    static int CombiningOwner (BufferLine bufferRow, int x)
+    {
+        if (x < 1 || x > bufferRow.Length)
+            return -1;
+
+        var index = x - 1;
+        if (bufferRow [index].Width == 0) {
+            // an empty cell after a fullwidth char, the character is one further back;
+            // it is safe to step 2 cells back here, since an empty cell is only set by
+            // fullwidth chars
+            if (index < 1)
+                return -1;
+
+            index--;
+        }
+
+        return bufferRow [index].Code == 0 ? -1 : index;
+    }
+
+    //
+    // Composes the character already in a cell with a combining mark, when Unicode has
+    // a single code point for the pair (e + COMBINING ACUTE ACCENT -> LATIN SMALL LETTER
+    // E WITH ACUTE).  Marks compose one at a time, so a second mark composes with the
+    // result of the first.  Returns false when the pair has no precomposed form, when
+    // either side is not a usable code point, or when the platform cannot normalize.
+    //
+    static bool TryCompose (CharData cell, int mark, out int composed)
+    {
+        composed = 0;
+
+        try {
+            var pair = Char.ConvertFromUtf32 (cell.Code) + Char.ConvertFromUtf32 (mark);
+            var normalized = pair.Normalize (NormalizationForm.FormC);
+            if (normalized.Length == 0)
+                return false;
+
+            // it composed only if the two code points became exactly one
+            var length = Char.IsSurrogatePair (normalized, 0) ? 2 : 1;
+            if (normalized.Length != length)
+                return false;
+
+            composed = Char.ConvertToUtf32 (normalized, 0);
+            return composed != cell.Code;
+        } catch (Exception) {
+            return false;
+        }
+    }
+
+    //
+    // Format characters that have no glyph of their own.  They are given no cell: a
+    // column spent on them would push the rest of the row sideways for nothing, and the
+    // character they follow keeps its cell (a heart followed by VARIATION SELECTOR-16
+    // stays a heart, and the joiners in an emoji sequence leave each emoji standing).
+    //
+    static bool IsDefaultIgnorable (int code)
+    {
+        return (code >= 0x200b && code <= 0x200f)       // zero width space .. right-to-left mark
+            || (code >= 0x202a && code <= 0x202e)       // bidirectional embedding controls
+            || (code >= 0x2060 && code <= 0x2064)       // word joiner .. invisible plus
+            || (code >= 0x206a && code <= 0x206f)       // deprecated format characters
+            || (code >= 0xfe00 && code <= 0xfe0f)       // variation selectors
+            || code == 0xfeff                           // zero width no-break space
+            || (code >= 0xfff9 && code <= 0xfffb)       // interlinear annotation
+            || code == 0xe0001                          // language tag
+            || (code >= 0xe0020 && code <= 0xe007f)     // tag characters
+            || (code >= 0xe0100 && code <= 0xe01ef);    // variation selectors supplement
+    }
+
     unsafe void Print (byte* data, int start, int end)
     {
         readingBuffer.Prepare (data, start, end - start);
@@ -1211,6 +1324,13 @@ class InputHandler {
 
 
         terminal.UpdateRange (buffer.Y);
+
+        // handle fullwidth chars: printing starts on the placeholder cell of a fullwidth
+        // character when the cursor was moved into the middle of one (a backspace, a
+        // cursor position sequence).  Its first cell would be left claiming two columns
+        // with nothing after it, so blank that cell out.
+        if (buffer.X > 0 && buffer.X < bufferRow.Length && bufferRow.GetWidth (buffer.X - 1) == 2)
+            bufferRow [buffer.X - 1] = new CharData (curAttr);
 
         while (readingBuffer.HasNext ()) {
             int code;
@@ -1243,14 +1363,15 @@ class InputHandler {
 
             // calculate print space
             // expensive call, therefore we save width in line buffer
-
-            // TODO: This is wrong, we only have one byte at this point, we do not have a full rune.
-            // The correct fix includes the upper parser tracking the "pending" data across invocations
-            // until a valid UTF-8 string comes in, and *then* we can call this method
-            // var chWidth = Rune.ColumnWidth ((Rune)code);
-
-            // 1 until we get a fixed NStack
-            var chWidth = 1;
+            // code holds a complete code point here: a multi-byte sequence was assembled
+            // above, and a sequence cut short by the end of the chunk was put back for the
+            // next call, so the width table can be asked directly.
+            // ColumnWidth returns 2 for fullwidth characters, 0 for combining marks and
+            // -1 for C0/C1 and anything else that is not printable; the unprintable ones
+            // keep taking a single cell, as they did before widths were measured.
+            var chWidth = Rune.ColumnWidth ((Rune)code);
+            if (chWidth < 0)
+                chWidth = 1;
 
             // get charset replacement character
             // charset are only defined for ASCII, therefore we only
@@ -1266,34 +1387,34 @@ class InputHandler {
             if (screenReaderMode)
                 terminal.EmitChar (ch);
 
-            // insert combining char at last cursor position
-            // FIXME: needs handling after cursor jumps
-            // buffer.x should never be 0 for a combining char
-            // since they always follow a cell consuming char
-            // therefore we can test for buffer.x to avoid overflow left
-            if (chWidth == 0 && buffer.X > 0) {
-                // MIGUEL TODO: in the original code the getter might return a null value
-                // does this mean that JS returns null for out of bounsd?
-                if (buffer.X >= 1 && buffer.X < bufferRow.Length) {
-                    var chMinusOne = bufferRow [buffer.X - 1];
-                    if (chMinusOne.Width == 0) {
-                        // found empty cell after fullwidth, need to go 2 cells back
-                        // it is save to step 2 cells back here
-                        // since an empty cell is only set by fullwidth chars
-                        if (buffer.X >= 2) {
-                            var chMinusTwo = bufferRow [buffer.X - 2];
-
-                            chMinusTwo.Code += ch;
-                            chMinusTwo.Rune = (uint)code;
-                            bufferRow [buffer.X - 2] = chMinusTwo; // must be set explicitly now
-                        }
-                    } else {
-                        chMinusOne.Code += ch;
-                        chMinusOne.Rune = (uint)code;
-                        bufferRow [buffer.X - 1] = chMinusOne; // must be set explicitly now
-                    }
+            // a combining mark belongs to the character in the cell before the cursor
+            // (two cells back when that one is the placeholder of a fullwidth character).
+            // A cell holds ONE code point, so the mark is dealt with in three steps:
+            //   1. compose the pair into the single code point Unicode has for it, and
+            //      keep that in the owner's cell - the base character is never lost;
+            //   2. a format character that has no glyph of its own (a variation selector,
+            //      a joiner) is dropped, so it costs no column;
+            //   3. anything else - a mark with no precomposed form - takes a cell of its
+            //      own, which is what this engine did before widths were measured; the
+            //      row is then one column longer than the remote program believes.
+            // The real fix for step 3 is a combined-character store on CharData, which is
+            // a change to the public data model and a job of its own.
+            if (chWidth == 0) {
+                var owner = CombiningOwner (bufferRow, buffer.X);
+                if (owner >= 0 && TryCompose (bufferRow [owner], code, out var composed)) {
+                    var ownerCell = bufferRow [owner];
+                    ownerCell.Rune = (uint)composed;
+                    ownerCell.Code = composed;
+                    bufferRow [owner] = ownerCell;    // must be set explicitly now
+                    continue;
                 }
-                continue;
+
+                if (IsDefaultIgnorable (code))
+                    continue;
+
+                // no precomposed form: give the mark its own cell, and let the autowrap
+                // and insert-mode code below treat it as any other single-cell character
+                chWidth = 1;
             }
 
             // goto next line if ch would overflow
@@ -1351,12 +1472,23 @@ class InputHandler {
             // fullwidth char - also set next cell to placeholder stub and advance cursor
             // for graphemes bigger than fullwidth we can simply loop to zero
             // we already made sure above, that buffer.x + chWidth will not overflow right
+            // the placeholder carries width 0: that is how a renderer knows to skip it and
+            // how the code above finds the fullwidth cell it belongs to
             if (chWidth > 0) {
+                var placeholder = empty;
+                placeholder.Width = 0;
                 while (--chWidth != 0) {
-                    bufferRow [buffer.X++] = empty;
+                    bufferRow [buffer.X++] = placeholder;
                 }
             }
         }
+
+        // handle fullwidth chars: a fullwidth character whose first cell was overwritten
+        // leaves its placeholder behind with nothing owning it, turn that back into a
+        // blank cell
+        if (buffer.X < bufferRow.Length && bufferRow [buffer.X].Width == 0 && bufferRow [buffer.X].Code == 0)
+            bufferRow [buffer.X] = new CharData (curAttr);
+
         terminal.UpdateRange (buffer.Y);
         readingBuffer.Done ();
     }

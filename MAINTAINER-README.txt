@@ -140,6 +140,62 @@ tests/CodeBrix.Terminal.Engine.Tests/EscapeSequence/, one file per sequence
 family, with shared helpers in TerminalTestExtensions.cs and
 CsiCommandCodes.cs.
 
+What the engine suite covers beyond those, and what it deliberately does not:
+
+    TerminalFeedTests        Every Feed overload with nothing to feed (null,
+                             empty, zero and negative lengths, a length past
+                             the end of the array) and the parser state
+                             surviving an empty feed mid-sequence.
+    WideCharacterTests       The two-cell path: widths from Rune.ColumnWidth,
+                             placeholders, split multi-byte feeds, wrapping at
+                             the last column with autowrap on and off, margins,
+                             insert mode, REP, and erasing or overwriting half
+                             a fullwidth character.
+    CombiningMarkTests       The zero-width path: marks composing into the
+                             character before them (including inside a
+                             fullwidth cell and in the last column), format
+                             characters being dropped, and marks with no
+                             precomposed form keeping a cell of their own.
+    BufferLineTests          BufferLine cell arithmetic around the two cells of
+                             a fullwidth character (GetTrimmedLength,
+                             TranslateToString, InsertCells, DeleteCells,
+                             ReplaceCells, Resize).
+    BufferResizeTests        Reflow above the cursor in both directions, the
+                             round trip, the cursor's own group being cut,
+                             rows growing and shrinking with scrollback, the
+                             alternate buffer, margins, and fullwidth
+                             characters across a resize.
+    RuneHelperTests          The older RuneHelper table, and where it disagrees
+                             with the one the engine uses.
+    SearchServiceTests       Snapshot text versus result coordinates: the text
+                             holds each character once, the Points are buffer
+                             columns.
+
+Known gaps in the engine suite:
+  - The rectangular-area commands (DECCRA, DECFRA, DECERA, DECSERA) write and
+    copy cells one column at a time, so a rectangle whose edge falls between
+    the two cells of a fullwidth character can still split it. xterm leaves
+    that case undefined too; there are no tests for it.
+  - A combining mark with no precomposed form (Thai and Lao vowel signs,
+    Arabic harakat, Hebrew points, a second stacked mark) takes a cell of its
+    own, so the row is one column longer than the program that wrote it
+    believes. InputHandler.Print composes what Unicode can compose and drops
+    the format characters that have no glyph; the rest needs a combined-
+    character store on CharData, which is a change to the public data model.
+    CombiningMarkTests pins all three outcomes.
+  - Rune.ColumnWidth reports U+3099, U+309A and the CJK tone marks
+    U+302A..U+302F as TWO columns rather than as combining marks, so they take
+    two cells of their own instead of composing (KA plus U+3099 stays two
+    characters rather than becoming GA). That classification comes from the
+    vendored NStack table and tests/CodeBrix.Terminal.Text.Tests pins it
+    (Test_IsNonSpacingChar asserts ColumnWidth(U+302A) == 2 and that
+    "伀" + U+302A occupies four columns), so the engine leaves it alone.
+    Changing it means changing the vendored table AND those tests together.
+  - TerminalOptions.Scrollback is int? and defaults to 1000; setting it to
+    null explicitly makes the buffer length zero, and CircularList then
+    divides by zero when the Terminal is constructed. Nothing in the
+    repository does that, and it is not tested.
+
 
 PACKAGING AND PUBLISHING
 ========================
@@ -209,6 +265,26 @@ Vendored-source conventions:
     Unicode 15.0.0, and TerminalKey / TerminalModifiers / TerminalKeyEncoder
     are additions with no upstream counterpart. The consumer guide states all
     of these as facts.
+  - A further divergence: InputHandler.Print measures each character with
+    Rune.ColumnWidth. Upstream XtermSharp hard-codes a width of 1 there (the
+    "1 until we get a fixed NStack" remark), which left the whole two-cell
+    path in Print -- the autowrap test, insert mode, the placeholder cell, the
+    combining-mark branch -- written but never executed. This fork carries the
+    fixed table in Text/Rune.ColumnWidth.cs, so that path now runs. It is a
+    BEHAVIOUR CHANGE for consumers: a CJK character or an emoji now advances
+    the cursor by two columns and occupies two cells, where before every
+    character took one. The cell moves in BufferLine (InsertCells, DeleteCells,
+    ReplaceCells, Resize) and the wide-character guards at both ends of Print
+    keep the invariant that a Width 2 cell is always followed by its Width 0
+    placeholder and a Width 0 cell always follows its owner.
+  - The upstream combining-mark branch in that same path overwrote the base
+    character's Rune with the mark, which would have cost the letter of every
+    decomposed (NFD) accent and the emoji of every variation sequence. It was
+    replaced by three steps: compose the pair through
+    String.Normalize (NormalizationForm.FormC) and keep the single code point
+    in the owner's cell; drop format characters that have no glyph; otherwise
+    give the mark a cell of its own, which is what the published package did
+    before widths were measured. No path writes a mark over a base character.
 
 
 CODING CONVENTIONS
@@ -242,6 +318,18 @@ NOTES
     DECRQSS and everything in the CommandExtensions / CsiCommandExtensions
     namespaces are internal. Keep them that way: the consumer guide tells
     agents there is nothing for them there.
+  - There are TWO width tables in the tree. Engine/CharWidth.cs (RuneHelper.
+    ConsoleWidth) is the older one, kept only because it is public API; it
+    predates the emoji ranges and nothing in the engine calls it. The table
+    the engine measures with is Text/Rune.ColumnWidth.cs (Rune.ColumnWidth,
+    Rune.IsWideChar, Rune.IsNonSpacingChar), which is also what
+    ustring.ConsoleWidth uses. Both files say so in a comment; keep them
+    saying it. If the two ever have to be reconciled, RuneHelper is the one
+    to retire, and that is a breaking change for consumers.
+  - The reflow leaves the wrapped-line group holding the cursor alone and then
+    cuts it to the new width. That is xterm's rule -- the application repaints
+    its own input line after a size change -- and it must not be "fixed".
+    BufferResizeTests pins it and the consumer guide explains it.
   - System.Drawing.Point is used by SelectionService and SearchSnapshot. It
     comes from the shared framework, not a package reference, so the
     "zero dependencies" claim in AGENT-README.txt still holds.

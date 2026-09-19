@@ -313,7 +313,8 @@ public class Buffer {
     }
 
     /// <summary>
-    /// Translates a buffer line to a string, with optional start and end columns.   Wide characters will count as two columns in the resulting string. This 
+    /// Translates a buffer line to a string, with optional start and end columns.   The columns count a wide character as two,
+    /// matching the cells it occupies, while the character itself appears once in the returned text. This
     /// function is useful for getting the actual text underneath the raw selection position.
     /// </summary>
     /// <returns>The buffer line to string.</returns>
