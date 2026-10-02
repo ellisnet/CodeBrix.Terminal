@@ -2,7 +2,7 @@
 
 A .NET terminal emulation engine with Unicode text support.
 
-CodeBrix.Terminal is a .NET (10 or higher) library that provides a virtual terminal (VT100/VT220/VT400/xterm-compatible) emulation engine, including a full ANSI/DEC escape sequence parser, terminal buffer management, and Unicode text utilities. It can be used to build terminal emulator UIs, process terminal output programmatically, or integrate terminal functionality into .NET applications. It has no dependencies, other than the .NET runtime.
+CodeBrix.Terminal is a .NET (10 or higher) library that provides a virtual terminal (VT100/VT220/VT400/xterm-compatible) emulation engine, including a full ANSI/DEC escape sequence parser, terminal buffer management, and Unicode text utilities. It can be used to build terminal emulator UIs, process terminal output programmatically, or integrate terminal functionality into .NET applications. The emulation engine and Unicode utilities have no dependencies other than the .NET runtime. The optional macOS PTY helper has a separate native requirement described below.
 
 CodeBrix.Terminal is provided as a .NET 10 library and associated `CodeBrix.Terminal.MitLicenseForever` NuGet package.
 
@@ -48,7 +48,23 @@ The package has no NuGet dependencies at all - nothing beyond .NET itself is pul
 * Character set designation and selection (G0-G3)
 * Selection and search services
 * Terminal resize with content reflow
-* Pseudo-terminal (PTY) fork and exec support (Unix)
+* Pseudo-terminal (PTY) process-management helper (macOS only; external native helper required)
+
+## PTY platform support
+
+`CodeBrix.Terminal.Engine.Pty` is annotated `[SupportedOSPlatform("macos")]`,
+which applies to all its members and enables platform compatibility warnings
+for unguarded calls. The annotation does not perform a runtime OS check.
+
+`ForkAndExec()` requires a separately supplied `libpty.dylib` exporting
+`fork_and_exec`. Neither this repository nor the NuGet package supplies that
+native helper, so the call cannot work on macOS without it. The inactive
+`forkpty` branch is not a selectable Linux implementation. `SetWinSize()` and
+`AvailableBytes()` use macOS-specific ioctl constants.
+
+These methods do not support Windows, Linux or Android. The terminal emulation
+engine and Unicode utilities remain portable: feed them output from your own
+platform-specific PTY implementation or remote transport such as SSH.
 
 ## CodeBrix.Terminal.Text additionally supports:
 

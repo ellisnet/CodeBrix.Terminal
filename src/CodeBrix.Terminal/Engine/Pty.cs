@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.IO;
 
 namespace CodeBrix.Terminal.Engine; //was previously: namespace XtermSharp;
@@ -9,6 +10,16 @@ public struct UnixWindowSize {
     public short row, col, xpixel, ypixel;
 }
 
+/// <summary>
+/// Provides macOS-specific pseudo-terminal process management.
+/// </summary>
+/// <remarks>
+/// Not supported on Windows, Linux, or Android. ForkAndExec requires a separately
+/// supplied libpty.dylib exporting fork_and_exec; this package does not include it.
+/// SetWinSize and AvailableBytes use macOS ioctl constants. This restriction does
+/// not apply to the portable terminal emulation engine.
+/// </remarks>
+[SupportedOSPlatform("macos")]
 public class Pty {
     [DllImport ("util")]
     extern static int forkpty (out int master, IntPtr dataReturn, IntPtr termios, ref UnixWindowSize WinSz);
@@ -26,6 +37,7 @@ public class Pty {
     /// <summary>
     /// Forks a process and returns a file handle that is connected to the standard output of the child process
     /// </summary>
+    /// <remarks>Requires macOS and a separately supplied libpty.dylib exporting fork_and_exec.</remarks>
     /// <param name="programName">Name of the program to run</param>
     /// <param name="args">Argument to pass to the program</param>
     /// <param name="env">Desired environment variables for the program</param>
@@ -54,6 +66,7 @@ public class Pty {
     /// <summary>
     /// Sends a request to the pseudo terminal to set the size to the specified one
     /// </summary>
+    /// <remarks>Uses the macOS TIOCSWINSZ request; not supported on other operating systems.</remarks>
     /// <param name="fd">File descriptor returned by ForkPty</param>
     /// <param name="winSize">The desired window size</param>
     /// <returns></returns>
@@ -74,6 +87,7 @@ public class Pty {
     /// <summary>
     /// Returns the number of bytes available for reading on a file descriptor
     /// </summary>
+    /// <remarks>Uses the macOS FIONREAD request; not supported on other operating systems.</remarks>
     /// <param name="fd"></param>
     /// <param name="size"></param>
     /// <returns></returns>

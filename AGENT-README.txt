@@ -59,8 +59,10 @@ Requirements and limits:
     points take byte pointers. You do NOT need <AllowUnsafeBlocks> in your own
     project unless you implement IDcsHandler or a PrintHandler yourself,
     both of which have unsafe members.
-  - Pty.ForkAndExec / SetWinSize / AvailableBytes are P/Invokes into libc and
-    work on Unix and macOS only.
+  - The Pty process-management helper is macOS-only, not supported on Windows,
+    Linux or Android. ForkAndExec requires a separately supplied libpty.dylib
+    exporting fork_and_exec; the NuGet package does not include that library.
+    The terminal emulation engine and Unicode utilities remain portable.
   - Everything else is platform-neutral and runs anywhere .NET 10 runs.
 
 
@@ -140,7 +142,7 @@ SUPPORTED FEATURES
     combining marks compose into the character they follow (see CHARACTER
     WIDTHS)
   - Search and selection services over the scrollback
-  - PTY fork/exec, window-size and available-bytes on Unix/macOS
+  - PTY fork/exec, window-size and available-bytes on macOS only (see PTY SUPPORT)
   - Unicode 15.0.0 classification, case conversion and case folding
   - UTF-8 string handling with Rune (code point) support and terminal column
     width calculation
@@ -600,7 +602,7 @@ line (a REPL, a chat box, anything that echoes what the user is typing),
 REPAINT THAT LINE after you call Resize with fewer columns -- clear it and
 write it again from your own copy of the text. If the text comes from a process
 through a PTY, tell the process about the new size instead (Pty.SetWinSize on
-Unix) and let it repaint, which is what it is written to do.
+macOS) and let it repaint, which is what it is written to do.
 
 Other things Resize does:
   - Rows: growing pulls lines back from the scrollback when there are any, and
@@ -1017,13 +1019,14 @@ Line and LineFragment -- the flattened text model both services return:
     terminal line is stitched back into one searchable, selectable string.
 
 
-PTY SUPPORT (UNIX AND MACOS ONLY)
----------------------------------
+PTY SUPPORT (MACOS ONLY; EXTERNAL NATIVE HELPER REQUIRED)
+-------------------------------------------------------
     public struct UnixWindowSize
     {
         public short row, col, xpixel, ypixel;   // fields
     }
 
+    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
     public class Pty
     {
         public static int ForkAndExec(string programName, string[] args,
@@ -1033,7 +1036,8 @@ PTY SUPPORT (UNIX AND MACOS ONLY)
         public static int AvailableBytes(int fd, ref long size);
     }
 
-    Usage:
+    Usage inside a macOS-only method or an OperatingSystem.IsMacOS() guard,
+    after making the required native helper available:
 
         var winSize = new UnixWindowSize { row = 25, col = 80 };
         int pid = Pty.ForkAndExec("/bin/bash", args, env,
@@ -1044,9 +1048,26 @@ PTY SUPPORT (UNIX AND MACOS ONLY)
 
     Terminal.GetEnvironmentVariables(termName) builds a suitable env array.
 
-    These are P/Invokes into libc: they do NOT work on Windows. On Windows,
-    drive the terminal from System.Diagnostics.Process redirected streams (or
-    a ConPTY wrapper of your own) and Feed() what you read.
+    The SupportedOSPlatform("macos") annotation on Pty applies to all its
+    members, including ForkAndExec, SetWinSize and AvailableBytes. It lets the
+    .NET platform compatibility analyzer warn (CA1416) about unguarded calls
+    from cross-platform code. It is not a runtime OS check.
+
+    ForkAndExec always selects the native libpty.dylib entry point
+    fork_and_exec in the current implementation. You must supply that helper
+    separately and make it discoverable by the native library loader; this
+    repository and NuGet package do not provide it. Without it, the call fails
+    even on macOS. The private, inactive forkpty/libutil branch is not a
+    consumer-selectable Linux backend.
+
+    SetWinSize and AvailableBytes call libc with macOS-specific ioctl request
+    constants. None of these three methods supports Windows, Linux or Android.
+
+    The terminal emulation engine and Unicode utilities do not require this
+    helper. On other platforms, supply your own platform-appropriate PTY or
+    transport (for example, a ConPTY wrapper on Windows or remote SSH), then
+    Feed() its output to the engine. Redirected Process streams can supply
+    output too, but do not provide full PTY semantics.
 
 
 UNICODE TEXT SUPPORT (CodeBrix.Terminal.Text)
@@ -1328,7 +1349,7 @@ essentials every renderer needs:
 7. CURSOR AND SIZE. Paint the cursor at (Buffer.X, Buffer.Y) relative to
    YBase, honoring terminal.CursorHidden and Options.CursorStyle. When your
    surface changes size, call terminal.Resize(cols, rows) and push the new
-   size to the process too (Pty.SetWinSize on Unix); the delegate's
+   size to the process too (Pty.SetWinSize on macOS); the delegate's
    SizeChanged callback fires after a resize. Resizing to FEWER columns cuts
    the wrapped-line group the cursor sits in instead of re-laying it, so an
    application that writes its own input line has to repaint that line
@@ -1764,8 +1785,9 @@ COMMON PITFALLS TO AVOID
 16. DO NOT hold a SearchSnapshot across buffer changes. It is a point-in-time
     copy; take a new one (SearchService.Invalidated tells you when).
 
-17. DO NOT call Pty.ForkAndExec on Windows. It is a libc P/Invoke and works
-    on Unix and macOS only.
+17. DO NOT use Pty on Windows, Linux or Android. All three public methods
+    are macOS-only; ForkAndExec additionally requires a separately supplied
+    libpty.dylib exporting fork_and_exec. See PTY SUPPORT.
 
 18. DO NOT expect 24-bit color. The model is the 256-color xterm palette;
     Terminal.MatchColor(r, g, b) maps an arbitrary RGB triple onto the
@@ -1778,7 +1800,7 @@ COMMON PITFALLS TO AVOID
     to the new width -- that is xterm's rule, because the application owns
     that line. If YOUR application writes the input line (a REPL, a chat),
     repaint it after every Resize to fewer columns; if a process writes it,
-    push the new size to the process (Pty.SetWinSize) and let it repaint. See
+    push the new size to the process (Pty.SetWinSize on macOS) and let it repaint. See
     RESIZING AND REFLOW.
 
 
@@ -1792,11 +1814,13 @@ Do NOT reach for this package to:
   - Provide a GUI or console terminal CONTROL. There is no widget and no
     drawing code; you write the renderer (see WRITING A RENDERER).
   - Run a shell or command interpreter. The engine emulates the display side
-    only; spawning the process is your job (Pty helps on Unix/macOS).
+    only; spawning the process is your job (Pty is macOS-only and requires
+    an external native helper).
   - Speak SSH, Telnet or any network protocol. There is no transport here.
   - Read the keyboard. TerminalKeyEncoder ENCODES key identifiers you supply;
     capturing key events is the host's job.
-  - Spawn processes on Windows. Pty.ForkAndExec is Unix/macOS only.
+  - Provide PTY process management on Windows, Linux or Android. Pty is
+    macOS-only; the required libpty.dylib for ForkAndExec is not bundled.
   - Render TrueColor (24-bit RGB). The color model tops out at the 256-color
     palette.
   - Integrate with the clipboard.
@@ -1994,7 +2018,8 @@ Selection:        new SelectionService(terminal)
 Search:           new SearchService(terminal).GetSnapshot()
                   snapshot.FindText(term) / FindNext() / FindPrevious()
 
-PTY (Unix/macOS): Pty.ForkAndExec(prog, args, env, out master, winSize)
+PTY (macOS only): Pty.ForkAndExec(prog, args, env, out master, winSize)
+                  Requires separately supplied libpty.dylib (not bundled).
                   Pty.SetWinSize(master, ref winSize)
                   Terminal.GetEnvironmentVariables(termName)
 
