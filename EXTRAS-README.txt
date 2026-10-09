@@ -54,7 +54,7 @@ server that runs the real process.
 
 The SignalR transport, the process management and the auth key all belong to
 the sample, NOT to the package: CodeBrix.Terminal itself has no networking
-and spawns no processes (outside Pty on Unix/macOS).
+and spawns no processes (outside Pty on macOS).
 
 
 TESTS (tests/)

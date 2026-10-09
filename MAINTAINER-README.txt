@@ -91,8 +91,8 @@ applies to every `dotnet test` run anywhere in the repository, including CI.
 Keep the file committed -- see TESTING.
 
 The library targets net10.0 with <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-(the parser's print and DCS paths take byte pointers). Both engine test
-projects set AllowUnsafeBlocks too.
+(the parser's print and DCS paths take byte pointers). Both library test
+projects (Engine.Tests and Text.Tests) set AllowUnsafeBlocks too.
 
 Use CodeBrix.Terminal.slnx only on Windows: it includes
 samples/RemoteTerminal.Client, a WinUI 3 / Windows App SDK project targeting
@@ -293,7 +293,7 @@ CODING CONVENTIONS
   - Nullable reference-type annotations are OFF for this repository; do not
     add `?` to reference types.
   - <AllowUnsafeBlocks>true</AllowUnsafeBlocks> is required by the library and
-    by the engine test projects.
+    by both library test projects.
   - In vendored files, follow the surrounding upstream style; in new files
     (for example TerminalKeyEncoder.cs) use the normal CodeBrix style.
   - Test files are named <Area>Tests.cs; escape-sequence tests go under

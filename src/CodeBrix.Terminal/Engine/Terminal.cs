@@ -593,6 +593,16 @@ public class Terminal {
             this.charset = charset;
     }
 
+    /// <summary>
+    /// Resizes the terminal to the given number of columns and rows (clamped to the minimum size),
+    /// reflowing the buffers. Does nothing when the size is unchanged.
+    /// </summary>
+    /// <param name="cols">The new number of columns.</param>
+    /// <param name="rows">The new number of rows.</param>
+    /// <remarks>
+    /// This does not raise <see cref="ITerminalDelegate.SizeChanged(Terminal)"/>; that is raised only for
+    /// escape-sequence-driven size changes (DECCOLM).
+    /// </remarks>
     public void Resize (int cols, int rows)
     {
         if (cols < MINIMUM_COLS)
@@ -1128,8 +1138,19 @@ public class Terminal {
     #endregion
 
     /// <summary>
-    /// Sets the scroll region
+    /// Sets the scroll region (top and bottom margins), as DECSTBM (CSI top ; bottom r) does, and moves the
+    /// cursor to the home position.
     /// </summary>
+    /// <param name="top">The top row of the region, 0-based (DECSTBM's 1-based parameter minus one).</param>
+    /// <param name="bottom">
+    /// The bottom row of the region, 1-based, exactly as DECSTBM receives it; 0 means the last row, and values
+    /// past the last row are clamped to it.
+    /// </param>
+    /// <remarks>
+    /// The mixed units are kept from the upstream engine, where this method exists to serve the DECSTBM handler.
+    /// The region is left unchanged when the (0-based) top is not above the (0-based) bottom; the cursor is
+    /// homed either way.
+    /// </remarks>
     public void SetScrollRegion (int top, int bottom)
     {
         var buffer = Buffer;

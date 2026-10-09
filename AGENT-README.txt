@@ -273,7 +273,11 @@ Terminal control:
                                             //   application that writes its own
                                             //   input line must repaint it after
                                             //   a resize to FEWER columns
-    void SetScrollRegion(int top, int bottom)
+    void SetScrollRegion(int top, int bottom) // top 0-based, bottom 1-based
+                                            //   (0 = last row), as DECSTBM;
+                                            //   homes the cursor, and leaves
+                                            //   the region unchanged unless
+                                            //   top is above bottom
     void SetCursorStyle(CursorStyle style)
 
 Titles: the set/push/pop operations are internal. Titles change in response to
@@ -306,7 +310,7 @@ Miscellaneous:
 Events:
 
     event Action<Terminal, int> Scrolled        // int is the new Buffer.YDisp;
-                                                //   fires on every viewport
+                                                //   is raised on every viewport
                                                 //   move, from incoming
                                                 //   content or from
                                                 //   ScrollLines/ScrollToBottom
@@ -374,7 +378,16 @@ TERMINAL DELEGATE
 
     Send(byte[]) is how the terminal hands you data to write back to the
     process or remote host (device reports, mouse events, responses you
-    trigger with SendResponse).
+    cause with SendResponse).
+
+    SizeChanged(Terminal) is raised only for an escape-sequence-driven size
+    change: a DECCOLM column-mode switch (CSI ? 3 h -> 132 columns,
+    CSI ? 3 l -> 80 columns), honoured only while Allow80To132 is on
+    (CSI ? 40 h). It fires once, after the terminal has its new size. Your
+    own terminal.Resize(cols, rows) call never raises it. A Terminal built
+    without a delegate (new Terminal(null, options)) gets a
+    SimpleTerminalDelegate, so Delegate is never null and DECCOLM is safe on
+    a headless terminal.
 
     enum WindowManipulationCommand -- the xterm CSI t operations, passed to
     WindowCommand:
@@ -1334,7 +1347,7 @@ essentials every renderer needs:
 
 5. VIEWPORT. Mouse wheel -> terminal.ScrollLines(+/-lines); typing ->
    terminal.ScrollToBottom(); use IsAtBottom to decide whether to follow new
-   output; subscribe Scrolled (it fires with the new Buffer.YDisp on every
+   output; subscribe Scrolled (it is raised with the new Buffer.YDisp on every
    viewport move) to sync a scrollbar.
 
 6. SELECTION. SelectionService endpoints (Start/End) are BUFFER-ABSOLUTE
@@ -1349,8 +1362,10 @@ essentials every renderer needs:
 7. CURSOR AND SIZE. Paint the cursor at (Buffer.X, Buffer.Y) relative to
    YBase, honoring terminal.CursorHidden and Options.CursorStyle. When your
    surface changes size, call terminal.Resize(cols, rows) and push the new
-   size to the process too (Pty.SetWinSize on macOS); the delegate's
-   SizeChanged callback fires after a resize. Resizing to FEWER columns cuts
+   size to the process too (Pty.SetWinSize on macOS). Your own Resize call
+   does NOT call the delegate's SizeChanged; the engine calls it only when the
+   application switches column mode (DECCOLM, CSI ? 3 h / l, honoured only
+   while Allow80To132 is on). Resizing to FEWER columns cuts
    the wrapped-line group the cursor sits in instead of re-laying it, so an
    application that writes its own input line has to repaint that line
    afterwards -- see RESIZING AND REFLOW.
@@ -1408,8 +1423,10 @@ Example 2: Scroll regions
         terminal.Feed($"Line {i}\r\n");
     }
 
-    // The same thing through the API:
-    terminal.SetScrollRegion(4, 19);        // buffer coordinates are 0-based
+    // The same thing through the API. SetScrollRegion takes the TOP as a
+    // 0-based row and the BOTTOM 1-based, exactly as DECSTBM passes them, so
+    // this sets Buffer.ScrollTop = 4 and Buffer.ScrollBottom = 19:
+    terminal.SetScrollRegion(4, 20);
 
 
 Example 3: A custom terminal delegate
@@ -1735,16 +1752,16 @@ COMMON PITFALLS TO AVOID
     is not necessarily 3. Advance by ch.Width when you paint, and count a wide
     character as two columns in any column arithmetic. See CHARACTER WIDTHS.
 
+6b. DO NOT measure text with RuneHelper.ConsoleWidth and expect it to match
+    the buffer. It is an older table that reports emoji as one column;
+    Rune.ColumnWidth is what the engine uses.
+
 6c. DO NOT expect a cell to hold a character plus its marks. A cell holds one
     code point: "e" and U+0301 come back as the single letter U+00E9, a
     variation selector or joiner is dropped, and a mark with no precomposed
     form (Thai vowel signs, Arabic harakat) gets a cell of its own instead --
     so a row carrying such text is one column longer than the program that
     wrote it expects. Feeding precomposed (NFC) text avoids that entirely.
-
-6b. DO NOT measure text with RuneHelper.ConsoleWidth and expect it to match
-    the buffer. It is an older table that reports emoji as one column;
-    Rune.ColumnWidth is what the engine uses.
 
 7. DO NOT hand-roll the attribute bit shifts. Use
    CharacterAttribute.Unpack(attr) and the DefaultColorIndex /
@@ -1764,7 +1781,9 @@ COMMON PITFALLS TO AVOID
     StartSelection, SetSoftStart, ShiftExtend and DragExtend take (row, col).
 
 11. DO NOT forget that escape-sequence coordinates are 1-based (CUP is
-    \x1b[row;colH) while every buffer coordinate in this API is 0-based.
+    \x1b[row;colH) while every buffer coordinate in this API is 0-based --
+    except the bottom argument of Terminal.SetScrollRegion, which is 1-based
+    like the DECSTBM parameter it receives.
 
 12. DO NOT treat SelectionService.End as inclusive. GetSelectedText() copies
     [Start.X, End.X) on the end row, and Start == End is an empty selection.
@@ -1980,7 +1999,8 @@ Full reset:       terminal.Reset()  /  terminal.SoftReset()
 Resize:           terminal.Resize(newCols, newRows)
                   // fewer columns cuts the cursor's own wrapped line: repaint
                   //   your input line afterwards
-Scroll region:    terminal.SetScrollRegion(top, bottom)   // 0-based
+Scroll region:    terminal.SetScrollRegion(top, bottom)   // top 0-based,
+                                                          //   bottom 1-based
 
 Live screen row:  terminal.Buffer.Lines[terminal.Buffer.YBase + row]
 Viewport row:     terminal.Buffer.Lines[terminal.Buffer.YDisp + row]

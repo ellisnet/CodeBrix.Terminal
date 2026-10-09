@@ -28,6 +28,12 @@ public interface ITerminalDelegate {
     /// <summary>
     /// This event is triggered from the engine, when the request to resize the window is received from an escape sequence.
     /// </summary>
+    /// <remarks>
+    /// The engine raises it after a DECCOLM column-mode switch (CSI ? 3 h / CSI ? 3 l, honoured only while
+    /// <see cref="Terminal.Allow80To132"/> is on), once the terminal has its new size. It is NOT raised by
+    /// <see cref="Terminal.Resize(int, int)"/>: a host that calls Resize already knows the new size, and raising
+    /// it there would echo every host-driven resize back to the host.
+    /// </remarks>
     void SizeChanged (Terminal source);
 
     /// <summary>
