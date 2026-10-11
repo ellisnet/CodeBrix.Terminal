@@ -620,6 +620,39 @@ public class Terminal {
         Refresh (0, Rows - 1);
     }
 
+    /// <summary>
+    /// Applies a DECCOLM column-mode switch (CSI ? 3 h / CSI ? 3 l): resizes to <paramref name="cols"/>, resets
+    /// the top, bottom, left and right margins to their defaults (left/right margin mode off), erases the screen,
+    /// homes the cursor, and then raises the delegate's SizeChanged.
+    /// </summary>
+    /// <remarks>
+    /// This follows the VT510 description of DECCOLM. It is not a full reset: modes, character sets, attributes,
+    /// mouse tracking, Allow80To132 and the scrollback are left as they are (the upstream engine ran RIS here).
+    /// </remarks>
+    internal void SwitchColumnMode (int cols)
+    {
+        Resize (cols, Rows);
+
+        var buffer = Buffer;
+        MarginMode = false;
+        buffer.ScrollTop = 0;
+        buffer.ScrollBottom = Rows - 1;
+        buffer.SetMargins (0, Cols - 1);
+
+        var erase = new CharData (EraseAttr ());
+        for (int y = 0; y < Rows; y++) {
+            var line = buffer.Lines [buffer.YBase + y];
+            line.ReplaceCells (0, Cols, erase);
+            line.IsWrapped = false;
+        }
+
+        buffer.X = 0;
+        buffer.Y = 0;
+        Refresh (0, Rows - 1);
+
+        terminalDelegate.SizeChanged (this);
+    }
+
     internal void SyncScrollArea ()
     {
         // This should call the viewport syncscrollarea

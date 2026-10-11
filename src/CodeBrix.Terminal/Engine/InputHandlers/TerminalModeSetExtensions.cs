@@ -119,9 +119,8 @@ internal static class TerminalModeSetExtensions {
                     break;
                 case 3: // 132 col mode
                     if (terminal.Allow80To132) {
-                        terminal.Resize (132, terminal.Rows);
-                        terminal.Reset ();
-                        terminal.Delegate.SizeChanged (terminal);
+                        //was previously: Resize (132), Reset () (a full RIS), then SizeChanged
+                        terminal.SwitchColumnMode (132);
                     }
                     break;
                 case 5:
@@ -321,9 +320,8 @@ internal static class TerminalModeSetExtensions {
                     break;
                 case 3:
                     if (terminal.Allow80To132) {
-                        terminal.Resize (80, terminal.Rows);
-                        terminal.Delegate.SizeChanged (terminal);
-                        terminal.Reset ();
+                        //was previously: Resize (80), SizeChanged, then Reset () (a full RIS)
+                        terminal.SwitchColumnMode (80);
                     }
                     break;
                 case 5:

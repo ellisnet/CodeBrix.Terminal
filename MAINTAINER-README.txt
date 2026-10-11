@@ -285,6 +285,14 @@ Vendored-source conventions:
     in the owner's cell; drop format characters that have no glyph; otherwise
     give the mark a cell of its own, which is what the published package did
     before widths were measured. No path writes a mark over a base character.
+  - DECCOLM (CSI ? 3 h / l, while Allow80To132 is on) follows the VT510
+    description: Terminal.SwitchColumnMode resizes, resets the top, bottom,
+    left and right margins (left/right margin mode off), erases the screen,
+    homes the cursor and then raises SizeChanged -- the same order for 132
+    and 80 columns. Upstream ran a full RIS (Terminal.Reset) there, which also
+    cleared Allow80To132 and every mode, and raised SizeChanged before the
+    reset on the 80-column path but after it on the 132-column path. It is a
+    BEHAVIOUR CHANGE for consumers; DeccolmTests fences it.
 
 
 CODING CONVENTIONS

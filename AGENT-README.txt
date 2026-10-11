@@ -384,7 +384,15 @@ TERMINAL DELEGATE
     change: a DECCOLM column-mode switch (CSI ? 3 h -> 132 columns,
     CSI ? 3 l -> 80 columns), honoured only while Allow80To132 is on
     (CSI ? 40 h). It fires once, after the terminal has its new size. Your
-    own terminal.Resize(cols, rows) call never raises it. A Terminal built
+    own terminal.Resize(cols, rows) call never raises it.
+
+    A DECCOLM switch is not a full reset. As on a VT510 it resets the top,
+    bottom, left and right margins (left/right margin mode off), erases the
+    screen and homes the cursor -- all before SizeChanged fires, for both 132
+    and 80 columns. Modes, character sets, the current attributes, mouse
+    tracking, the scrollback and Allow80To132 itself are left as they were,
+    so an application can switch back and forth without sending CSI ? 40 h
+    again. A Terminal built
     without a delegate (new Terminal(null, options)) gets a
     SimpleTerminalDelegate, so Delegate is never null and DECCOLM is safe on
     a headless terminal.
